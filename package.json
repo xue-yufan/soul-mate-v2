@@ -1,0 +1,37 @@
+{
+  "name": "soul-mate-v2",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Soul Mate v2: Electron/Vue frontend, Node.js backend, Rust Agent sidecar and N-API embedding kernel.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:rust": "npm run build:rust-agent && npm run build:rust-napi && npm run build:rust-mcp",
+    "build:rust-agent": "cargo build --release --manifest-path packages/agent-rust/Cargo.toml --target-dir .tmp-cargo-target",
+    "build:rust-napi": "node packages/embedding-napi/build.mjs",
+    "build:rust-mcp": "cargo build --release --manifest-path packages/mcp-rust/Cargo.toml --target-dir .tmp-cargo-target",
+    "build:backend": "npm run build:rust && npm run build -w @soul-mate/agent-contracts && npm run build -w @soul-mate/agent-ts && npm run build -w @soul-mate/backend",
+    "build": "npm run build:backend && npm run build -w soul-mate-frontend",
+    "typecheck": "npm run build -w @soul-mate/agent-contracts && npm run build -w @soul-mate/agent-ts && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:rust": "cargo test --manifest-path packages/embedding-core/Cargo.toml --target-dir .tmp-cargo-target && cargo test --manifest-path packages/embedding-napi/Cargo.toml --target-dir .tmp-cargo-target && cargo test --manifest-path packages/mcp-rust/Cargo.toml --target-dir .tmp-cargo-target && cargo test --manifest-path packages/agent-rust/Cargo.toml --target-dir .tmp-cargo-target",
+    "bench:embedding": "node packages/embedding-napi/benchmark.mjs",
+    "bench:embedding:sidecar": "node packages/agent-rust/embedding_benchmark.mjs",
+    "dev:backend": "npm run dev -w @soul-mate/backend",
+    "dev:desktop": "npm run dev -w soul-mate-frontend",
+    "start:backend": "npm run start -w @soul-mate/backend"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true
+  }
+}

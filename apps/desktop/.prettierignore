@@ -1,0 +1,11 @@
+node_modules
+out
+release
+dist
+.vite
+public
+vendor
+_stage
+*.log
+*.md
+package-lock.json

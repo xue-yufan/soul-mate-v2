@@ -1,0 +1,147 @@
+{
+    "name": "soul-mate-frontend",
+    "version": "0.1.0",
+    "description": "Soul Mate — Electron + Vue 桌面端，TypeScript Agent 后端随包附带",
+    "author": "Soul Mate",
+    "private": true,
+    "type": "module",
+    "main": "out/main/index.js",
+    "scripts": {
+        "dev": "node scripts/electron-vite.mjs",
+        "build": "npm run typecheck && node scripts/electron-vite.mjs build",
+        "typecheck": "vue-tsc --noEmit && tsc --noEmit -p electron/tsconfig.json",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "preview": "node scripts/electron-vite.mjs preview",
+        "electron:build": "npm --prefix ../.. run build:backend && npm run build && electron-builder --config.electronDist=node_modules/electron/dist",
+        "dist": "npm --prefix ../.. run build:backend && npm run build && electron-builder --win --x64 --config.electronDist=node_modules/electron/dist",
+        "dist:portable": "npm --prefix ../.. run build:backend && npm run build && electron-builder --win portable --x64 --config.electronDist=node_modules/electron/dist",
+        "dist:dir": "npm --prefix ../.. run build:backend && npm run build && electron-builder --dir --config.electronDist=node_modules/electron/dist",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "format": "prettier --write \"src/**/*.{ts,vue,css}\" \"electron/**/*.ts\"",
+        "format:check": "prettier --check \"src/**/*.{ts,vue,css}\" \"electron/**/*.ts\""
+    },
+    "dependencies": {
+        "@pixiv/three-vrm": "^3.5.5",
+        "dompurify": "^3.4.16",
+        "highlight.js": "^11.12.0",
+        "marked": "^18.1.0",
+        "marked-highlight": "^2.2.4",
+        "three": "^0.186.1",
+        "vue": "^3.5.0"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/node": "^22.7.0",
+        "@types/three": "^0.186.0",
+        "@vitejs/plugin-vue": "^6.0.9",
+        "@vue/test-utils": "^2.5.1",
+        "electron": "44.10.2",
+        "electron-builder": "^26.15.3",
+        "electron-vite": "^5.0.0",
+        "eslint": "^10.12.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-vue": "^10.11.1",
+        "globals": "^17.13.0",
+        "happy-dom": "^21.0.4",
+        "prettier": "^3.9.10",
+        "typescript": "^5.6.0",
+        "typescript-eslint": "^8.71.2",
+        "vite": "^7.3.6",
+        "vitest": "^5.0.5",
+        "vue-tsc": "^2.1.0"
+    },
+    "build": {
+        "appId": "com.soulmate.app",
+        "productName": "Soul Mate",
+        "directories": {
+            "output": "release",
+            "buildResources": "build"
+        },
+        "files": [
+            "out/**/*",
+            "!out/renderer/model/xiadie01/**/*",
+            "!out/renderer/model/xiadie02/**/*",
+            "!out/renderer/xiadie/**/*",
+            "!node_modules/**/*",
+            "package.json"
+        ],
+        "electronLanguages": [
+            "zh-CN",
+            "en-US"
+        ],
+        "extraResources": [
+            {
+                "from": "../backend",
+                "to": "backend",
+                "filter": [
+                    "**/*",
+                    "!data/**",
+                    "!node_modules/**",
+                    "!tests/**",
+                    "!config.local.yaml",
+                    "!config.overrides.yaml",
+                    "!config.overrides.yaml.tmp",
+                    "!**/.git/**",
+                    "!**/*.map"
+                ]
+            },
+            {
+                "from": "../../.tmp-cargo-target/release",
+                "to": "agent-rust",
+                "filter": [
+                    "soul-mate-agent-rust.exe",
+                    "soul-mate-agent-rust"
+                ]
+            },
+            {
+                "from": "../../packages/embedding-napi/dist",
+                "to": "embedding-napi",
+                "filter": [
+                    "soul-mate-embedding.node"
+                ]
+            },
+            {
+                "from": "../../.tmp-cargo-target/release",
+                "to": "mcp-rust",
+                "filter": [
+                    "soul-mate-mcp-rust.exe",
+                    "soul-mate-mcp-rust"
+                ]
+            },
+            {
+                "from": "vendor/uv",
+                "to": "uv",
+                "filter": [
+                    "uv.exe",
+                    "uv"
+                ]
+            }
+        ],
+        "electronDownload": {
+            "mirror": "https://npmmirror.com/mirrors/electron/"
+        },
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "Soul Mate"
+        },
+        "portable": {
+            "artifactName": "Soul-Mate-Portable-${version}.exe"
+        }
+    }
+}

@@ -1,0 +1,15 @@
+[package]
+name = "soul-mate-embedding-core"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "Shared safe Rust embedding engine for Soul Mate v2"
+
+[dependencies]
+anyhow = "1"
+candle-core = "0.11.1"
+candle-nn = "0.11.1"
+candle-transformers = "0.11.1"
+serde_json = "1"
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
+

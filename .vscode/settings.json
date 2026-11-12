@@ -1,0 +1,8 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "packages/agent-rust/Cargo.toml",
+    "packages/embedding-core/Cargo.toml",
+    "packages/embedding-napi/Cargo.toml",
+    "packages/mcp-rust/Cargo.toml"
+  ]
+}

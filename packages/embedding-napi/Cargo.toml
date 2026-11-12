@@ -1,0 +1,23 @@
+[package]
+name = "soul-mate-embedding-napi"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "Safe Rust N-API embedding kernel for Soul Mate v2"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1"
+napi = { version = "3.16.1", default-features = false, features = ["napi8", "tokio_rt", "error_anyhow"] }
+napi-derive = "3.7.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+soul-mate-embedding-core = { path = "../embedding-core" }
+
+[build-dependencies]
+napi-build = "2.6.0"
+
+[lints.rust]
+linker_messages = "allow"
+

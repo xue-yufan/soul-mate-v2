@@ -1,0 +1,16 @@
+node_modules/
+dist/
+data/
+release/
+out/
+*.log
+config*.yaml
+config*.yml
+.env
+.env.*
+.DS_Store
+_soul_mate_v2_stage/
+.tmp-build/
+.tmp-cargo-target/
+packages/embedding-napi/dist/
+target/
