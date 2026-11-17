@@ -13,7 +13,7 @@ sidecar，Node.js 宿主继续负责模型 HTTP、SQLite、工具执行和用户
 - 本地工具调用、按钮确认和“可以 / 不必了”自然语言确认
 - Windows stdio MCP 工具网关（Rust JSON-RPC/子进程生命周期）
 - 摄像头单帧观察和本地视觉模型
-- OpenVINO 本地中文 TTS，并保留 GPT-SoVITS HTTP 兼容
+- Rust + OpenVINO 本地中文 TTS，并保留 GPT-SoVITS HTTP 兼容
 - 本地语音输入：优先 sherpa-onnx，回退 whisper.cpp
 - Rust Agent sidecar：多运行复用、`host_call/host_result`、取消和进程回收
 - Rust N-API 进程内嵌入内核，保留 sidecar 自动回退（Candle + safetensors）
@@ -142,8 +142,9 @@ $env:SOUL_MATE_FEATURES__MEMORY = "true"
 
 - 记忆与 RAG 使用中文词项检索、SQLite 持久向量缓存和 Rust 内存 top-k 索引；
   `auto` 模式优先加载 N-API，失败时自动回退 sidecar。
-- Edge TTS 尚未内置。默认 TTS 使用 OpenVINO Piper VITS，声学前端在 CPU、
-  卷积声码器在 Intel GPU；GPT-SoVITS 仍可作为可选 HTTP provider。
+- Edge TTS 尚未内置。默认 TTS 使用 Rust sidecar、ONNX Runtime 和 OpenVINO
+  Piper VITS，声学前端在 CPU、卷积声码器在 Intel GPU；GPT-SoVITS 仍可作为
+  可选 HTTP provider。
 - 本地语音输入支持 sherpa-onnx 与 whisper.cpp，但安装包不附带引擎和模型；
   当前采用录音结束后识别，尚未提供常驻流式部分转写。
 - 语音输入曾完成 Intel NPU 实机转写，但当前 OpenVINO/ORT 组合在连续加载

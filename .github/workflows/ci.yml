@@ -29,6 +29,7 @@ jobs:
       - run: cargo clippy --manifest-path packages/embedding-core/Cargo.toml --all-targets -- -D warnings
       - run: cargo clippy --manifest-path packages/embedding-napi/Cargo.toml --all-targets -- -D warnings
       - run: cargo clippy --manifest-path packages/mcp-rust/Cargo.toml --all-targets -- -D warnings
+      - run: cargo clippy --manifest-path packages/tts-rust/Cargo.toml --all-targets -- -D warnings
 
   package-smoke:
     if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'

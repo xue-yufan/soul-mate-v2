@@ -40,6 +40,13 @@ if (resourcesDir) {
     path.join(resourcesDir, "agent-rust", "soul-mate-agent-rust.exe"),
     path.join(resourcesDir, "embedding-napi", "soul-mate-embedding.node"),
     path.join(resourcesDir, "mcp-rust", "soul-mate-mcp-rust.exe"),
+    path.join(
+      resourcesDir,
+      "tts-rust",
+      process.platform === "win32"
+        ? "soul-mate-tts-rust.exe"
+        : "soul-mate-tts-rust",
+    ),
     path.join(resourcesDir, "vision-opencv", "soul-mate-vision-opencv.exe"),
   ];
   for (const file of required) {
@@ -53,6 +60,15 @@ if (resourcesDir) {
     !fs.readdirSync(visionDir).some((name) => /^opencv_world\d+\.dll$/i.test(name))
   ) {
     throw new Error(`OpenCV 运行库未打包：${visionDir}`);
+  }
+  const ttsDir = path.join(resourcesDir, "tts-rust");
+  const ttsFiles = fs.readdirSync(ttsDir);
+  if (
+    process.platform === "win32" &&
+    (!ttsFiles.some((name) => /^onnxruntime_providers_openvino\.dll$/i.test(name)) ||
+      !ttsFiles.some((name) => /^openvino\.dll$/i.test(name)))
+  ) {
+    throw new Error(`TTS OpenVINO 运行库未打包：${ttsDir}`);
   }
 }
 
@@ -150,7 +166,7 @@ try {
       child.kill("SIGTERM");
     }
   }
-  await sleep(1_000);
+  await sleep(2_000);
   cleanupTemp(userDataDir);
   if (packageCopyRoot) {
     cleanupPackageCopy(packageCopyRoot);
@@ -162,8 +178,8 @@ function cleanupTemp(target) {
     fs.rmSync(target, {
       recursive: true,
       force: true,
-      maxRetries: 30,
-      retryDelay: 200,
+      maxRetries: 120,
+      retryDelay: 250,
     });
   } catch (error) {
     console.warn(`临时目录清理失败，可稍后手动删除：${target}`, error);

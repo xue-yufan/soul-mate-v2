@@ -41,17 +41,36 @@ export function resolveTtsLaunch(
   const baseEnv = { ...(options.baseEnv ?? process.env) };
   if (settings.tts.provider === "openvino") {
     const backendDir = options.backendRootDir ?? backendRoot();
-    const script = path.join(
-      backendDir,
-      "src",
-      "tts",
-      "openvino_tts_server.py",
-    );
+    const executableName =
+      platform === "win32" ? "soul-mate-tts-rust.exe" : "soul-mate-tts-rust";
+    const executableCandidates = [
+      baseEnv.SOUL_MATE_TTS_EXE?.trim(),
+      path.resolve(backendDir, "..", "tts-rust", executableName),
+      path.resolve(
+        backendDir,
+        "..",
+        "..",
+        "packages",
+        "tts-rust",
+        "dist",
+        executableName,
+      ),
+      path.resolve(
+        backendDir,
+        "..",
+        "..",
+        ".cargo-target",
+        "release",
+        executableName,
+      ),
+    ].filter((command): command is string => Boolean(command));
+    const command =
+      executableCandidates.find((candidate) => fs.existsSync(candidate)) ??
+      executableCandidates[1]!;
     const parsed = new URL(settings.tts.base_url);
     return {
-      command: settings.tts.python_command,
+      command,
       args: [
-        script,
         "--model-dir",
         settings.tts.model_dir,
         "--host",
@@ -60,14 +79,8 @@ export function resolveTtsLaunch(
         parsed.port || "9880",
         "--device",
         settings.tts.device,
-        "--speaker",
-        settings.tts.speaker,
-        "--language",
-        settings.tts.language,
-        "--instruct",
-        settings.tts.instruct,
         "--cache-dir",
-        path.join(path.dirname(settings.tts.model_dir), "tts-cache"),
+        path.join(settings.paths.data_dir, "tts-cache"),
       ],
       cwd: backendDir,
       env: baseEnv,
@@ -177,9 +190,7 @@ class TtsEngineManager {
     }
     if (this.settings.tts.provider === "openvino") {
       return Boolean(
-        this.settings.tts.python_command &&
-          this.settings.tts.model_dir &&
-          this.settings.tts.base_url,
+        this.settings.tts.model_dir && this.settings.tts.base_url,
       );
     }
     return false;
@@ -208,12 +219,6 @@ class TtsEngineManager {
         return;
       }
     } else {
-      if (!fs.existsSync(this.settings.tts.python_command)) {
-        console.warn(
-          `[语音] OpenVINO Python 不存在：${this.settings.tts.python_command}`,
-        );
-        return;
-      }
       if (!fs.existsSync(this.settings.tts.model_dir)) {
         console.warn(`[语音] OpenVINO TTS 模型目录不存在：${this.settings.tts.model_dir}`);
         return;
@@ -231,6 +236,10 @@ class TtsEngineManager {
       this.settings,
       resourcesPath ? { resourcesPath } : {},
     );
+    if (!fs.existsSync(launch.command)) {
+      console.warn(`[语音] TTS sidecar 不存在：${launch.command}`);
+      return;
+    }
     if (launch.mode === "venv") {
       console.info(`[语音] 正在启动 GPT-SoVITS（虚拟环境）：${launch.command}`);
     } else if (launch.mode === "uv") {
@@ -354,8 +363,7 @@ export class TtsAdapter {
     if (this.settings.tts.provider === "openvino") {
       return Boolean(
         this.settings.tts.base_url &&
-          this.settings.tts.model_dir &&
-          this.settings.tts.python_command,
+          this.settings.tts.model_dir,
       );
     }
     return false;

@@ -199,7 +199,6 @@ async function ttsStatus(settings: Settings): Promise<ModuleStatus> {
     const missing = requiredFiles.filter(
       (file) => !fs.existsSync(path.join(tts.model_dir, file)),
     );
-    if (!tts.python_command.trim()) missing.push("python_command");
     if (!tts.model_dir.trim()) missing.push("model_dir");
     if (!tts.base_url.trim()) missing.push("base_url");
     if (missing.length > 0) {
@@ -216,17 +215,6 @@ async function ttsStatus(settings: Settings): Promise<ModuleStatus> {
         },
       };
     }
-    if (!fs.existsSync(tts.python_command)) {
-      return {
-        id: "tts",
-        label: "语音合成",
-        enabled: true,
-        state: "missing",
-        message: `OpenVINO Python 不存在：${tts.python_command}`,
-        details: { provider: tts.provider, device: tts.device },
-      };
-    }
-
     const serviceReady = await probeTts(tts.base_url);
     return {
       id: "tts",

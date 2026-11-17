@@ -23,6 +23,7 @@ capabilities that depended on the Python ecosystem:
 | Per-turn memory extraction                 | Ported through the model                                      | Quality depends on model JSON compliance |
 | Context summarization                      | Rolling summary with persisted message watermark              | Ported                                   |
 | MCP client                                 | Windows stdio gateway in Rust; HTTP transport remains absent  | No external MCP SDK dependency           |
+| Local neural TTS                           | Rust sidecar + ONNX Runtime OpenVINO EP                       | No Python runtime dependency             |
 | GPT-SoVITS TTS                             | Ported over HTTP                                              | Requires a running local engine          |
 | Edge TTS                                   | Not bundled in this version                                   | Largest TTS parity gap                   |
 | Optional C++ sentence boundary             | Pure TypeScript implementation                                | More portable, slower on extreme inputs  |

@@ -330,13 +330,14 @@ assistant/tool 调用序列从中间截断后发送给模型。
 
 ### 8.3 语音
 
-当前默认使用本地 OpenVINO Piper VITS。后端按句切分并异步合成，发送 base64
-WAV；前端通过 Web Audio 播放并计算口型包络。`finish()` 会等待正在合成的
-句子，避免最后一段音频被连接清理提前丢弃。
+当前默认使用 Rust 本地 TTS sidecar 和 Piper VITS。后端按句切分并异步合成，
+发送 base64 WAV；前端通过 Web Audio 播放并计算口型包络。`finish()` 会等待
+正在合成的句子，避免最后一段音频被连接清理提前丢弃。
 
-OpenVINO TTS 模型拆成 CPU 声学前端和 GPU 声码器。声码器按 64 帧形状分桶，
-每个桶只编译一次；本机缓存后同一句 HTTP 延迟约 0.11 秒。模型目录至少包含
-`front.onnx`、`decoder.onnx`、`tokens.txt` 和 `lexicon.txt`。
+Rust sidecar 使用 ONNX Runtime 的 OpenVINO Execution Provider：CPU 运行声学
+前端，GPU 运行卷积声码器。声码器按 64 帧分桶生成静态 ONNX，每个桶只编译一次；
+本机缓存后同一句 HTTP 延迟约 0.12 秒。模型目录至少包含 `front.onnx`、
+`decoder.onnx`、`tokens.txt` 和 `lexicon.txt`。
 
 GPT-SoVITS 仍保留为可选 provider。选中 `gpt_sovits` 后，后端会探测并启动
 本地 HTTP 服务；日志不输出 API 密钥。启动过程不阻塞 HTTP/WebSocket 就绪，

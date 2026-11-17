@@ -147,22 +147,15 @@ export const FIELD_SPECS = fields(
     optionLabels: {
       edge: "Edge（TypeScript 版暂未内置）",
       gpt_sovits: "GPT-SoVITS（本地 HTTP）",
-      openvino: "OpenVINO GenAI（Intel NPU/GPU/CPU）",
+      openvino: "Rust 本地 TTS（OpenVINO EP）",
     },
   },
   {
-    path: "tts.python_command",
-    label: "OpenVINO Python",
-    group: "voice",
-    kind: "str",
-    help: "安装 openvino-genai 的 python.exe；例如 .voice-asr/tts-env/Scripts/python.exe。",
-  },
-  {
     path: "tts.model_dir",
-    label: "OpenVINO TTS 模型目录",
+    label: "Rust TTS 模型目录",
     group: "voice",
     kind: "str",
-    help: "拆分模型目录需包含 front.onnx、decoder.onnx、tokens.txt 和 lexicon.txt。",
+    help: "模型目录需包含 front.onnx、decoder.onnx、tokens.txt 和 lexicon.txt。",
   },
   {
     path: "tts.device",
@@ -170,7 +163,7 @@ export const FIELD_SPECS = fields(
     group: "voice",
     kind: "select",
     options: ["NPU", "GPU", "CPU", "AUTO"],
-    help: "当前 Intel NPU 可运行声码器但延迟约 11 秒/64 帧；实时对话建议使用 GPU。",
+    help: "Rust sidecar 通过 ONNX Runtime OpenVINO EP 选择设备；实时对话建议使用 GPU。",
   },
   {
     path: "tts.speaker",

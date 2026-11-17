@@ -198,8 +198,12 @@ WebSocket 协议和错误诊断可以继续复用。
 两段，避免把整个动态 TTS 图交给单一设备：
 
 - `front.onnx`：CPU 运行文本编码、时长预测和 Flow，输出 `192 x frames` 声学特征。
-- `decoder.onnx`：GPU 运行卷积声码器，按 64 帧分桶编译并缓存。
+- `decoder.onnx`：Rust 在首次请求时按 64 帧分桶生成固定输入/输出的静态模型，
+  再由 ONNX Runtime 的 OpenVINO Execution Provider 在 GPU 运行。
 - `tokens.txt` / `lexicon.txt`：本地中文 G2P，不调用在线服务。
+
+默认链路由 `soul-mate-tts-rust.exe` 提供，不启动 Python。Rust sidecar 负责
+中文 tokenization、声学特征按通道补齐、静态声码器生成、WAV 编码和 HTTP 接口。
 
 服务监听 `http://127.0.0.1:9890`，接口为 `GET /healthz`、`GET /openapi.json`
 和 `POST /tts`。设置页中的“TTS 声码器设备”可以选择 `GPU`、`NPU`、`CPU`
@@ -207,19 +211,15 @@ WebSocket 协议和错误诊断可以继续复用。
 
 本机实测：
 
-- GPU 首次请求包含声码器编译，约 4.6 秒；编译缓存后同一句约 0.11 秒。
+- Rust GPU 首次请求包含静态图和声码器编译，约 0.5–5 秒；缓存后同一句约
+  0.12 秒。
 - TTS 输出为 22.05 kHz WAV，再经本地 ASR 回验，识别结果与输入逐字一致。
-- NPU 能真实执行声码器，但 64 帧约 11.1 秒、128 帧约 22.2 秒、
-  256 帧约 44.4 秒，无法满足对话延迟，因此默认使用 GPU 声码器。
+- Rust NPU 路径可以真实执行，但短句首次约 28 秒，仍无法满足对话延迟，因此
+  默认使用 GPU。
 
-NPU 的瓶颈是当前 Intel NPU 驱动编译器和卷积声码器的组合，不是 Python 环境。
-直接改用 Qwen3-TTS 也不可行：当前 `openvino-genai 2026.4.1` 的
-`Text2SpeechPipeline` 不支持该架构，而 Kokoro 的动态波形以及 STFT/ISTFT
-同样没有可用的 NPU 实时实现。
-
-Python 3.14 可以运行现有 `openvino` 服务。Kokoro 的 Python 依赖要求
-Python `<3.13`，因此仅在实验目录使用独立 Python 3.12 环境；默认 TTS 链路
-不依赖该环境。
+静态声码器文件保存在应用数据目录的 `tts-cache`，不写入模型目录，也不需要
+用户手工生成。`soul-mate-tts-rust` 的构建产物和 ONNX Runtime provider DLL
+会一起进入 `resources/tts-rust`。
 
 ## ASR 当前状态
 

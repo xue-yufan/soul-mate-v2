@@ -1,0 +1,32 @@
+[package]
+name = "soul-mate-tts-rust"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Native Rust OpenVINO TTS sidecar for Soul Mate v2"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = [
+  "std",
+  "ndarray",
+  "download-binaries",
+  "copy-dylibs",
+  "tls-native",
+  "openvino",
+  "api-31",
+] }
+onnx-protobuf = "0.2.3"
+protobuf = "=3.4.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiny_http = "0.12"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

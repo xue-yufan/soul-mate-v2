@@ -42,7 +42,6 @@ export interface UserConfig {
     promptText?: string;
     engineDir?: string;
     refAudioDir?: string;
-    pythonCommand?: string;
     modelDir?: string;
     device?: string;
     speaker?: string;
@@ -89,7 +88,6 @@ const TEMPLATE: UserConfig = {
     promptText: "",
     engineDir: "",
     refAudioDir: "",
-    pythonCommand: "",
     modelDir: "",
     device: "NPU",
     speaker: "Serena",
@@ -199,7 +197,6 @@ export function userConfigToEnv(cfg: UserConfig): Record<string, string> {
       ["promptText", "SOUL_MATE_TTS__PROMPT_TEXT"],
       ["engineDir", "SOUL_MATE_TTS__ENGINE_DIR"],
       ["refAudioDir", "SOUL_MATE_TTS__REF_AUDIO_DIR"],
-      ["pythonCommand", "SOUL_MATE_TTS__PYTHON_COMMAND"],
       ["modelDir", "SOUL_MATE_TTS__MODEL_DIR"],
       ["device", "SOUL_MATE_TTS__DEVICE"],
       ["speaker", "SOUL_MATE_TTS__SPEAKER"],

@@ -124,6 +124,17 @@
                 ]
             },
             {
+                "from": "../../packages/tts-rust/dist",
+                "to": "tts-rust",
+                "filter": [
+                    "soul-mate-tts-rust.exe",
+                    "soul-mate-tts-rust",
+                    "onnxruntime*.dll",
+                    "openvino*.dll",
+                    "tbb*.dll"
+                ]
+            },
+            {
                 "from": "vendor/uv",
                 "to": "uv",
                 "filter": [

@@ -164,7 +164,6 @@ export interface Settings {
     top_k: number;
     top_p: number;
     ref_audio_dir: string;
-    python_command: string;
     model_dir: string;
     device: string;
     speaker: string;
@@ -373,11 +372,6 @@ export function loadSettings(): Settings {
   if (merged.voice.provider_config) {
     merged.voice.provider_config = resolveBackendPath(
       merged.voice.provider_config,
-    );
-  }
-  if (merged.tts.python_command) {
-    merged.tts.python_command = resolveBackendPath(
-      merged.tts.python_command,
     );
   }
   if (merged.tts.model_dir) {
