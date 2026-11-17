@@ -52,7 +52,7 @@ function defaultRustCommand(): string | null {
     .resourcesPath;
   const candidates = [
     process.env.SOUL_MATE_RUST_AGENT_BIN?.trim() || null,
-    path.resolve(backendRoot(), "../../.tmp-cargo-target/release", executable),
+    path.resolve(backendRoot(), "../../.cargo-target/release", executable),
     path.resolve(
       backendRoot(),
       "../../packages/agent-rust/target/release",

@@ -4,6 +4,9 @@ import { dataPaths, loadSettings } from "./config/settings.js";
 import { Runtime } from "./runtime.js";
 import { inspectRuntimeModules, logModuleStatuses } from "./diagnostics.js";
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 async function main(): Promise<void> {
   const settings = loadSettings();
   dataPaths(settings);
@@ -20,6 +23,10 @@ async function main(): Promise<void> {
     const timeout = setTimeout(() => process.exit(1), 12_000);
     timeout.unref();
     try {
+      const clients = runtime.beginShutdown(`后端即将关闭：${reason}`);
+      if (clients > 0 && settings.server.ws_notify_delay_s > 0) {
+        await sleep(settings.server.ws_notify_delay_s * 1000);
+      }
       await app.close();
       await runtime.close();
       clearTimeout(timeout);
@@ -29,6 +36,10 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   };
+
+  runtime.onShutdownRequested((reason) => {
+    void shutdown(reason);
+  });
 
   process.once("SIGINT", () => void shutdown("收到中断信号"));
   process.once("SIGTERM", () => void shutdown("收到终止信号"));

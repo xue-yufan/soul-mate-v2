@@ -59,7 +59,7 @@ async function onKeydown(event: KeyboardEvent): Promise<void> {
     if (!keys.includes(event.key)) return;
     event.preventDefault();
     const index = props.items.findIndex((item) => item.id === props.modelValue);
-    let next = index;
+    let next: number;
     if (event.key === "Home") next = 0;
     else if (event.key === "End") next = props.items.length - 1;
     else if (event.key === "ArrowLeft") {

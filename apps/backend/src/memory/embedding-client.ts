@@ -57,7 +57,7 @@ export class RustEmbeddingClient implements EmbeddingClient {
       environment || null,
       path.resolve(
         backendRoot(),
-        "../../.tmp-cargo-target/release",
+        "../../.cargo-target/release",
         executable,
       ),
       path.resolve(

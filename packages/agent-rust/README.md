@@ -73,7 +73,7 @@ npm run build:rust
 发布二进制位于：
 
 ```text
-.tmp-cargo-target/release/soul-mate-agent-rust.exe
+.cargo-target/release/soul-mate-agent-rust.exe
 ```
 
 Electron 打包时该文件会复制到：

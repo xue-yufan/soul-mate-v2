@@ -9,14 +9,18 @@ sidecar，Node.js 宿主继续负责模型 HTTP、SQLite、工具执行和用户
 
 - 角色人格、流式对话、情绪表情和 VRM 3D 角色渲染
 - 聊天历史、成本记录、长期记忆、文档 RAG 和世界书
-- 本地工具调用与用户确认
+- 滚动对话摘要：保留最近轮次，后台合并较早历史与已有摘要
+- 本地工具调用、按钮确认和“可以 / 不必了”自然语言确认
 - Windows stdio MCP 工具网关（Rust JSON-RPC/子进程生命周期）
 - 摄像头单帧观察和本地视觉模型
-- GPT-SoVITS HTTP 语音合成
+- OpenVINO 本地中文 TTS，并保留 GPT-SoVITS HTTP 兼容
+- 本地语音输入：优先 sherpa-onnx，回退 whisper.cpp
 - Rust Agent sidecar：多运行复用、`host_call/host_result`、取消和进程回收
 - Rust N-API 进程内嵌入内核，保留 sidecar 自动回退（Candle + safetensors）
 - N-API 有界并发、推理取消、panic 隔离和嵌入性能/健康指标
 - Electron 主进程管理后端生命周期和本地鉴权
+- SQLite 版本化迁移、启动完整性检查、自动快照和手动备份恢复
+- 短暂断网自动续传：稳定客户端身份、回合事件序号、补发缓存与历史对账
 
 ## 项目结构
 
@@ -32,6 +36,7 @@ sidecar，Node.js 宿主继续负责模型 HTTP、SQLite、工具执行和用户
 | `packages/mcp-rust`             | Windows stdio MCP JSON-RPC 与进程树管理网关         |
 | `docs/project-guide.md`         | 项目架构、模块、协议和开发指南                      |
 | `docs/rust-kernel-migration.md` | Rust 内核迁移边界与内存安全要求                     |
+| `docs/local-voice-asr.md`       | 本地语音识别引擎、模型和配置说明                    |
 
 ## 环境要求
 
@@ -74,6 +79,7 @@ npm run dev:backend
 
 后端默认监听 `http://127.0.0.1:8000`。桌面端启动时会生成临时令牌，
 HTTP 接口使用 Bearer 鉴权，WebSocket 必须先发送 `auth` 消息。
+鉴权消息同时携带稳定的 `client_id`，重连后可在 30 秒宽限期内续传当前回合。
 
 ## 验证
 
@@ -82,6 +88,7 @@ npm run typecheck
 npm run test
 npm run test:rust
 npm run build
+npm run build:release
 ```
 
 Rust 全目标静态检查：
@@ -101,7 +108,12 @@ npm run bench:embedding:sidecar -- D:/path/to/model
 
 ```powershell
 npm run dist:dir -w soul-mate-frontend
+npm run smoke:dist
 ```
+
+发布构建会同时生成 Rust sidecar、N-API 嵌入、MCP 网关和 OpenCV 视觉模块；
+`smoke:dist` 会检查这些资源并实际启动打包后的 Electron 应用。CI 配置位于
+`.github/workflows/ci.yml`。
 
 生成 Windows 安装包：
 
@@ -130,10 +142,15 @@ $env:SOUL_MATE_FEATURES__MEMORY = "true"
 
 - 记忆与 RAG 使用中文词项检索、SQLite 持久向量缓存和 Rust 内存 top-k 索引；
   `auto` 模式优先加载 N-API，失败时自动回退 sidecar。
-- Edge TTS 尚未内置；配置 GPT-SoVITS 后后端会优先通过其虚拟环境自动拉起
-  本地服务，缺少虚拟环境时再用隔离缓存的 `uv` 回退。
+- Edge TTS 尚未内置。默认 TTS 使用 OpenVINO Piper VITS，声学前端在 CPU、
+  卷积声码器在 Intel GPU；GPT-SoVITS 仍可作为可选 HTTP provider。
+- 本地语音输入支持 sherpa-onnx 与 whisper.cpp，但安装包不附带引擎和模型；
+  当前采用录音结束后识别，尚未提供常驻流式部分转写。
+- 语音输入曾完成 Intel NPU 实机转写，但当前 OpenVINO/ORT 组合在连续加载
+  模型后会触发编译冲突，开发配置暂用 CPU。TTS 声码器能在 NPU 执行，但延迟
+  远高于 GPU，因此默认不启用 NPU。
 - MCP 当前只支持 Windows stdio；Streamable HTTP 尚未接入。
-- 滚动摘要、MCP 客户端和 Windows 代码签名仍待后续完善。
+- MCP Streamable HTTP 和 Windows 代码签名仍待后续完善。
 - TypeScript Agent 保留为故障回滚路径：把 `agent.kernel` 改为 `typescript`
   即可切换。
 

@@ -5,96 +5,126 @@ export const PROTOCOL_VERSION = 1 as const;
 export type ProtocolVersion = typeof PROTOCOL_VERSION;
 
 export function isSupportedVersion(v: unknown): v is ProtocolVersion {
-    return v === PROTOCOL_VERSION;
+  return v === PROTOCOL_VERSION;
 }
 
 // ---------- 信封 ----------
 
 export interface Envelope<T extends string, D> {
-    v: ProtocolVersion;
-    type: T;
-    request_id: string | null;
-    session_id: string | null;
-    ts: string;
-    data: D;
+  v: ProtocolVersion;
+  type: T;
+  request_id: string | null;
+  session_id: string | null;
+  /** 可恢复回合事件序号；心跳和握手事件没有该字段。 */
+  seq?: number;
+  ts: string;
+  data: D;
 }
 
 // ---------- 客户端 → 服务端 ----------
 
 export interface PingPayload {
-    v: ProtocolVersion;
-    type: "ping";
-    request_id?: string;
-    data?: Record<string, never>;
+  v: ProtocolVersion;
+  type: "ping";
+  request_id?: string;
+  data?: Record<string, never>;
 }
 
 export interface TextInputPayload {
-    v: ProtocolVersion;
-    type: "text_input";
-    request_id: string;
-    data: { text: string };
+  v: ProtocolVersion;
+  type: "text_input";
+  request_id: string;
+  data: { text: string };
 }
 
 export interface AuthPayload {
-    v: ProtocolVersion;
-    type: "auth";
-    request_id?: string;
-    data: { token: string };
+  v: ProtocolVersion;
+  type: "auth";
+  request_id?: string;
+  data: { token: string; client_id: string };
 }
 
 export interface ToolConfirmPayload {
-    v: ProtocolVersion;
-    type: "tool_confirm";
-    request_id: string;
-    data: { confirm_id: string; allowed: boolean };
+  v: ProtocolVersion;
+  type: "tool_confirm";
+  request_id: string;
+  data: { confirm_id: string; allowed: boolean };
 }
 
 export type CameraCapability = "camera";
 
 export interface ClientHelloPayload {
-    v: ProtocolVersion;
-    type: "client_hello";
-    request_id?: string;
-    data: { capabilities: CameraCapability[] };
+  v: ProtocolVersion;
+  type: "client_hello";
+  request_id?: string;
+  data: { capabilities: CameraCapability[]; client_id: string };
+}
+
+export interface ResumeRunPayload {
+  v: ProtocolVersion;
+  type: "resume_run";
+  request_id: string;
+  data: { after_seq: number };
 }
 
 export interface CameraCaptureResultPayload {
-    v: ProtocolVersion;
-    type: "camera_capture_result";
-    request_id: string;
-    data: {
-        capture_id: string;
-        ok: boolean;
-        mime_type?: string;
-        image?: string;
-        error?: string;
-    };
+  v: ProtocolVersion;
+  type: "camera_capture_result";
+  request_id: string;
+  data: {
+    capture_id: string;
+    ok: boolean;
+    mime_type?: string;
+    image?: string;
+    error?: string;
+  };
+}
+
+export interface AudioInputPayload {
+  v: ProtocolVersion;
+  type: "audio_input";
+  request_id: string;
+  data: {
+    audio: string;
+    mime_type: "audio/wav";
+    sample_rate: 16_000;
+    duration_ms: number;
+  };
 }
 
 export type ClientMessage =
-    | AuthPayload
-    | PingPayload
-    | TextInputPayload
-    | ToolConfirmPayload
-    | ClientHelloPayload
-    | CameraCaptureResultPayload;
+  | AuthPayload
+  | PingPayload
+  | TextInputPayload
+  | ToolConfirmPayload
+  | ClientHelloPayload
+  | ResumeRunPayload
+  | AudioInputPayload
+  | CameraCaptureResultPayload;
 
 // ---------- 服务端 → 客户端 ----------
 
 // pong
 
 export interface PongData {
-    server_time: string;
+  server_time: string;
 }
 export type PongEvent = Envelope<"pong", PongData>;
 
 // echo
 
 export interface EchoData {
-    text: string;
-    received_at: string;
+  text: string;
+  received_at: string;
 }
 export type EchoEvent = Envelope<"echo", EchoData>;
+
+// auth_ok
+
+export interface AuthOkData {
+  client_id: string;
+}
+export type AuthOkEvent = Envelope<"auth_ok", AuthOkData>;
 
 // run_started
 
@@ -105,7 +135,7 @@ export type RunStartedEvent = Envelope<"run_started", Record<string, never>>;
 export type Emotion = "neutral" | "happy" | "sad" | "surprised" | "shy" | "thinking" | "angry";
 
 export interface EmotionData {
-    emotion: Emotion;
+  emotion: Emotion;
 }
 export type EmotionEvent = Envelope<"emotion", EmotionData>;
 
@@ -118,141 +148,165 @@ export type EmotionEvent = Envelope<"emotion", EmotionData>;
 export type Expert = "chat" | "info";
 
 export interface ExpertSelectedData {
-    expert: Expert;
+  expert: Expert;
 }
 export type ExpertSelectedEvent = Envelope<"expert_selected", ExpertSelectedData>;
 
 // text_delta
 
 export interface TextDeltaData {
-    text: string;
+  text: string;
 }
 export type TextDeltaEvent = Envelope<"text_delta", TextDeltaData>;
 
 // run_finished
 
 export interface RunFinishedData {
-    tokens_in: number;
-    tokens_out: number;
-    model: string;
-    estimated_cost: number;
-    currency: string;
+  tokens_in: number;
+  tokens_out: number;
+  model: string;
+  estimated_cost: number;
+  currency: string;
 }
 export type RunFinishedEvent = Envelope<"run_finished", RunFinishedData>;
 
 // tool_call_started
 
 export interface ToolCallStartedData {
-    request_id: string;
-    tool_call_id: string;
-    tool: string;
-    args: Record<string, unknown>;
+  request_id: string;
+  tool_call_id: string;
+  tool: string;
+  args: Record<string, unknown>;
 }
 export type ToolCallStartedEvent = Envelope<"tool_call_started", ToolCallStartedData>;
 
 // tool_confirm_request
 
 export interface ToolConfirmRequestData {
-    request_id: string;
-    tool_call_id: string;
-    confirm_id: string;
-    tool: string;
-    args: Record<string, unknown>;
-    timeout_s: number;
-    /** 后端按人格模板渲染的确认语，前端展示用 */
-    prompt?: string;
+  request_id: string;
+  tool_call_id: string;
+  confirm_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  timeout_s: number;
+  /** 后端按人格模板渲染的确认语，前端展示用 */
+  prompt?: string;
 }
 export type ToolConfirmRequestEvent = Envelope<"tool_confirm_request", ToolConfirmRequestData>;
 
 // tool_result
 
 export interface ToolResultData {
-    request_id: string;
-    tool_call_id: string;
-    tool: string;
-    ok: boolean;
-    content?: string;
-    error?: string | null;
-    meta?: Record<string, unknown>;
+  request_id: string;
+  tool_call_id: string;
+  tool: string;
+  ok: boolean;
+  content?: string;
+  error?: string | null;
+  meta?: Record<string, unknown>;
 }
 export type ToolResultEvent = Envelope<"tool_result", ToolResultData>;
 
 // tool_denied
 
 export interface ToolDeniedData {
-    request_id: string;
-    tool_call_id: string;
-    tool: string;
-    reason: string;
+  request_id: string;
+  tool_call_id: string;
+  tool: string;
+  reason: string;
 }
 export type ToolDeniedEvent = Envelope<"tool_denied", ToolDeniedData>;
 
 // camera_capture_request
 
 export interface CameraCaptureRequestData {
-    capture_id: string;
-    question: string;
-    reason: string;
-    timeout_s: number;
+  capture_id: string;
+  question: string;
+  reason: string;
+  timeout_s: number;
 }
 export type CameraCaptureRequestEvent = Envelope<
-    "camera_capture_request",
-    CameraCaptureRequestData
+  "camera_capture_request",
+  CameraCaptureRequestData
 >;
 
 // tts_audio_chunk
 
 export interface TtsAudioChunkData {
-    /** base64 编码的 mp3 */
-    audio: string;
-    format: string;
-    text: string;
-    index: number;
+  /** base64 编码的 mp3 */
+  audio: string;
+  format: string;
+  text: string;
+  index: number;
 }
 export type TtsAudioChunkEvent = Envelope<"tts_audio_chunk", TtsAudioChunkData>;
 
 // tts_finished
 
 export interface TtsFinishedData {
-    chunks: number;
-    chars: number;
+  chunks: number;
+  chars: number;
 }
 export type TtsFinishedEvent = Envelope<"tts_finished", TtsFinishedData>;
+
+// local speech recognition
+
+export interface TranscriptionStartedData {
+  engine: string;
+}
+export type TranscriptionStartedEvent = Envelope<"transcription_started", TranscriptionStartedData>;
+
+export interface TranscriptionResultData {
+  text: string;
+  engine: string;
+  elapsed_ms: number;
+}
+export type TranscriptionResultEvent = Envelope<"transcription_result", TranscriptionResultData>;
+
+export interface TranscriptionErrorData {
+  code: string;
+  message: string;
+}
+export type TranscriptionErrorEvent = Envelope<"transcription_error", TranscriptionErrorData>;
 
 // error
 
 export interface ErrorData {
-    code: ErrorCode;
-    message: string;
+  code: ErrorCode;
+  message: string;
 }
 export type ErrorEvent = Envelope<"error", ErrorData>;
 
 // server_shutdown
 
 export interface ServerShutdownData {
-    message: string;
+  message: string;
 }
 export type ServerShutdownEvent = Envelope<"server_shutdown", ServerShutdownData>;
 
 // ---------- 联合类型 ----------
 
 export type ServerEvent =
-    | PongEvent
-    | EchoEvent
-    | RunStartedEvent
-    | ExpertSelectedEvent
-    | EmotionEvent
-    | TextDeltaEvent
-    | RunFinishedEvent
-    | ToolCallStartedEvent
-    | ToolConfirmRequestEvent
-    | ToolResultEvent
-    | ToolDeniedEvent
-    | CameraCaptureRequestEvent
-    | TtsAudioChunkEvent
-    | TtsFinishedEvent
-    | ErrorEvent
-    | ServerShutdownEvent;
+  | AuthOkEvent
+  | PongEvent
+  | EchoEvent
+  | RunStartedEvent
+  | ExpertSelectedEvent
+  | EmotionEvent
+  | TextDeltaEvent
+  | RunFinishedEvent
+  | ToolCallStartedEvent
+  | ToolConfirmRequestEvent
+  | ToolResultEvent
+  | ToolDeniedEvent
+  | CameraCaptureRequestEvent
+  | TtsAudioChunkEvent
+  | TtsFinishedEvent
+  | TranscriptionStartedEvent
+  | TranscriptionResultEvent
+  | TranscriptionErrorEvent
+  | ErrorEvent
+  | ServerShutdownEvent;
 
 /**
  * 服务端会发的事件类型全集
@@ -262,61 +316,69 @@ export type ServerEvent =
  * 版本，前端一个报错都没有。运行时多一个少一个都留一条 console 警告。
  */
 export const SERVER_EVENT_TYPES: ReadonlySet<string> = new Set([
-    "pong",
-    "echo",
-    "run_started",
-    "expert_selected",
-    "emotion",
-    "text_delta",
-    "run_finished",
-    "tool_call_started",
-    "tool_confirm_request",
-    "tool_result",
-    "tool_denied",
-    "camera_capture_request",
-    "tts_audio_chunk",
-    "tts_finished",
-    "error",
-    "server_shutdown",
+  "auth_ok",
+  "pong",
+  "echo",
+  "run_started",
+  "expert_selected",
+  "emotion",
+  "text_delta",
+  "run_finished",
+  "tool_call_started",
+  "tool_confirm_request",
+  "tool_result",
+  "tool_denied",
+  "camera_capture_request",
+  "tts_audio_chunk",
+  "tts_finished",
+  "transcription_started",
+  "transcription_result",
+  "transcription_error",
+  "error",
+  "server_shutdown",
 ]);
 
 // ---------- 错误码 ----------
 
 export type ErrorCode =
-    | "bad_json"
-    | "bad_request"
-    | "version_mismatch"
-    | "unsupported_type"
-    | "unauthorized"
-    | "internal_error"
-    | "model_error"
-    | "recursion_limit"
-    | "run_timeout"
-    | "cancelled"
-    | "tool_loop_limit"
-    | "memory_unavailable"
-    | "busy";
+  | "bad_json"
+  | "bad_request"
+  | "version_mismatch"
+  | "unsupported_type"
+  | "unauthorized"
+  | "internal_error"
+  | "model_error"
+  | "recursion_limit"
+  | "run_timeout"
+  | "cancelled"
+  | "tool_loop_limit"
+  | "memory_unavailable"
+  | "busy"
+  | "connection_lost"
+  | "run_not_found";
 
 export const ERROR_MESSAGES: Record<ErrorCode, string> = {
-    bad_json: "消息格式错误",
-    bad_request: "请求参数不合法",
-    version_mismatch: "版本不匹配，请更新应用",
-    unsupported_type: "不支持的消息类型",
-    unauthorized: "本地服务鉴权失败",
-    internal_error: "服务异常，请重试",
-    model_error: "模型暂时不可用",
-    recursion_limit: "问题太复杂，请换个说法",
-    run_timeout: "思考超时，请重试",
-    cancelled: "已取消",
-    tool_loop_limit: "工具调用次数超限",
-    memory_unavailable: "记忆暂时不可用，本轮不带记忆",
-    busy: "上一轮还在回复中",
+  bad_json: "消息格式错误",
+  bad_request: "请求参数不合法",
+  version_mismatch: "版本不匹配，请更新应用",
+  unsupported_type: "不支持的消息类型",
+  unauthorized: "本地服务鉴权失败",
+  internal_error: "服务异常，请重试",
+  model_error: "模型暂时不可用",
+  recursion_limit: "问题太复杂，请换个说法",
+  run_timeout: "思考超时，请重试",
+  cancelled: "已取消",
+  tool_loop_limit: "工具调用次数超限",
+  memory_unavailable: "记忆暂时不可用，本轮不带记忆",
+  busy: "上一轮还在回复中",
+  connection_lost: "连接中断时间过长，请重试",
+  run_not_found: "上一轮回复已无法续传",
 };
 
 // ---------- 辅助 ----------
 
 export function isServerEvent(msg: unknown): msg is ServerEvent {
-    if (typeof msg !== "object" || msg === null) return false;
-    const m = msg as Record<string, unknown>;
-    return typeof m.type === "string" && isSupportedVersion(m.v);
+  if (typeof msg !== "object" || msg === null) return false;
+  const m = msg as Record<string, unknown>;
+  return typeof m.type === "string" && isSupportedVersion(m.v);
 }

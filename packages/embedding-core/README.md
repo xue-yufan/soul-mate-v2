@@ -15,5 +15,5 @@
 验证：
 
 ```powershell
-cargo test --manifest-path packages/embedding-core/Cargo.toml --target-dir .tmp-cargo-target
+cargo test --manifest-path packages/embedding-core/Cargo.toml --target-dir .cargo-target
 ```

@@ -9,101 +9,104 @@ import type { ClientMessage, ServerEvent, TextInputPayload } from "@/types/proto
 type EventHandler = (event: ServerEvent) => void;
 
 export interface FakeWebSocket {
-    result: UseWebSocketResult;
-    status: Ref<ConnectionStatus>;
-    sent: Array<Omit<ClientMessage, "v">>;
-    send: ReturnType<typeof vi.fn>;
-    emit: (event: ServerEvent) => void;
+  result: UseWebSocketResult;
+  status: Ref<ConnectionStatus>;
+  sent: Array<Omit<ClientMessage, "v">>;
+  send: ReturnType<typeof vi.fn>;
+  emit: (event: ServerEvent) => void;
 }
 
 export function createFakeWebSocket(
-    options: { sendResult?: boolean; status?: ConnectionStatus } = {},
+  options: { sendResult?: boolean; status?: ConnectionStatus } = {},
 ): FakeWebSocket {
-    const status = ref<ConnectionStatus>(options.status ?? "connected");
-    const sent: Array<Omit<ClientMessage, "v">> = [];
-    const handlers = new Map<string, Set<EventHandler>>();
+  const status = ref<ConnectionStatus>(options.status ?? "connected");
+  const sent: Array<Omit<ClientMessage, "v">> = [];
+  const handlers = new Map<string, Set<EventHandler>>();
 
-    const send = vi.fn((payload: Omit<ClientMessage, "v">): boolean => {
-        sent.push(payload);
-        return options.sendResult ?? true;
-    });
+  const send = vi.fn((payload: Omit<ClientMessage, "v">): boolean => {
+    sent.push(payload);
+    return options.sendResult ?? true;
+  });
 
-    const result: UseWebSocketResult = {
-        status: readonly(status),
-        connect: vi.fn(),
-        disconnect: vi.fn(),
-        send,
-        on(type, handler) {
-            let set = handlers.get(type);
-            if (!set) {
-                set = new Set();
-                handlers.set(type, set);
-            }
-            set.add(handler);
-            return () => {
-                set.delete(handler);
-            };
-        },
-    };
+  const result: UseWebSocketResult = {
+    status: readonly(status),
+    clientId: "test-client-0001",
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    send,
+    on(type, handler) {
+      let set = handlers.get(type);
+      if (!set) {
+        set = new Set();
+        handlers.set(type, set);
+      }
+      set.add(handler);
+      return () => {
+        set.delete(handler);
+      };
+    },
+  };
 
-    return {
-        result,
-        status,
-        sent,
-        send,
-        emit(event) {
-            handlers.get(event.type)?.forEach((handler) => handler(event));
-        },
-    };
+  return {
+    result,
+    status,
+    sent,
+    send,
+    emit(event) {
+      handlers.get(event.type)?.forEach((handler) => handler(event));
+    },
+  };
 }
 
 export function createFakeTts(): UseTtsResult {
-    return {
-        enabled: ref(true),
-        isPlaying: ref(false),
-        queueLength: computed(() => 0),
-        mouth: { open: 0 },
-        enqueue: vi.fn(),
-        stop: vi.fn(),
-        toggle: vi.fn(),
-    };
+  return {
+    enabled: ref(true),
+    isPlaying: ref(false),
+    queueLength: computed(() => 0),
+    mouth: { open: 0 },
+    enqueue: vi.fn(),
+    stop: vi.fn(),
+    toggle: vi.fn(),
+  };
 }
 
 export function createMockChat(overrides: Partial<UseChatResult> = {}): UseChatResult {
-    return {
-        messages: ref([]),
-        isGenerating: ref(false),
-        historyLoading: ref(false),
-        currentEmotion: ref("neutral"),
-        currentExpert: ref(null),
-        pendingConfirm: ref(null),
-        historyTotal: ref(0),
-        hasMoreHistory: ref(false),
-        sendText: vi.fn(),
-        loadHistory: vi.fn(async () => {}),
-        loadMoreHistory: vi.fn(async () => {}),
-        clearAll: vi.fn(async () => {}),
-        confirmTool: vi.fn(() => true),
-        regenerate: vi.fn(async () => {}),
-        clear: vi.fn(),
-        ...overrides,
-    };
+  return {
+    messages: ref([]),
+    isGenerating: ref(false),
+    historyLoading: ref(false),
+    currentEmotion: ref("neutral"),
+    currentExpert: ref(null),
+    pendingConfirm: ref(null),
+    historyTotal: ref(0),
+    hasMoreHistory: ref(false),
+    sendText: vi.fn(),
+    loadHistory: vi.fn(async () => {}),
+    loadMoreHistory: vi.fn(async () => {}),
+    clearAll: vi.fn(async () => {}),
+    confirmTool: vi.fn(() => true),
+    regenerate: vi.fn(async () => {}),
+    clear: vi.fn(),
+    ...overrides,
+  };
 }
 
 export function serverEvent<T extends ServerEvent["type"], D>(
-    type: T,
-    data: D,
+  type: T,
+  data: D,
+  overrides: Partial<Omit<Extract<ServerEvent, { type: T }>, "type" | "data">> = {},
 ): Extract<ServerEvent, { type: T }> {
-    return {
-        v: 1,
-        type,
-        request_id: "request-1",
-        session_id: "default",
-        ts: "2026-10-23T00:00:00.000Z",
-        data,
-    } as Extract<ServerEvent, { type: T }>;
+  return {
+    v: 1,
+    type,
+    request_id: "request-1",
+    session_id: "default",
+    ts: "2026-10-23T00:00:00.000Z",
+    data,
+    ...overrides,
+  } as Extract<ServerEvent, { type: T }>;
 }
 
 export function textInput(sent: Array<Omit<ClientMessage, "v">>): TextInputPayload | undefined {
-    return sent.find((message) => message.type === "text_input") as TextInputPayload | undefined;
+  return sent.find((message) => message.type === "text_input") as TextInputPayload | undefined;
 }

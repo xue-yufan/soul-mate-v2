@@ -6,6 +6,9 @@ import { loadSettings } from "./config/settings.js";
 import { Persona } from "./persona/index.js";
 import { Database } from "./storage/database.js";
 import { SqliteHistoryPort } from "./storage/history.js";
+import { RollingSummaryService } from "./storage/summarizer.js";
+import { RealtimeHub } from "./realtime/hub.js";
+import { ResumableRunRegistry } from "./realtime/runs.js";
 import { OpenAICompatibleModel } from "./model/openai-compatible.js";
 import {
   DocumentService,
@@ -17,9 +20,11 @@ import {
 import { RustSidecarKernel } from "./agent/rust-kernel.js";
 import { PendingRegistry } from "./permission/pending.js";
 import { CameraBroker } from "./vision/camera-broker.js";
+import { OpenCvPreprocessor } from "./vision/opencv.js";
 import { TtsAdapter } from "./tts/index.js";
 import { EmbeddingService } from "./memory/embedding-service.js";
 import { McpManager } from "./mcp/manager.js";
+import { LocalAsr } from "./voice/asr.js";
 
 export class Runtime {
   settings: Settings;
@@ -31,8 +36,12 @@ export class Runtime {
   readonly history: SqliteHistoryPort;
   readonly pending = new PendingRegistry();
   readonly camera = new CameraBroker();
+  readonly realtime = new RealtimeHub();
+  readonly runs = new ResumableRunRegistry();
+  opencv: OpenCvPreprocessor;
   model: OpenAICompatibleModel;
   kernel: AgentKernel;
+  summary: RollingSummaryService;
   memory: MemoryService;
   recall: RecallService;
   documents: DocumentService;
@@ -41,7 +50,10 @@ export class Runtime {
   tts: TtsAdapter;
   embedding: EmbeddingService;
   mcp: McpManager;
+  asr: LocalAsr;
   private reloading = Promise.resolve();
+  private shuttingDown = false;
+  private readonly shutdownRequestHandlers = new Set<(reason: string) => void>();
 
   constructor(
     initial?: Settings,
@@ -57,6 +69,11 @@ export class Runtime {
     this.history = new SqliteHistoryPort(this.database);
     this.model = new OpenAICompatibleModel(this.settings.model);
     this.kernel = this.buildKernel(this.settings);
+    this.summary = new RollingSummaryService(
+      this.settings,
+      this.model,
+      this.database,
+    );
     this.embedding = new EmbeddingService(this.settings, {
       database: this.database,
     });
@@ -75,6 +92,8 @@ export class Runtime {
       this.memory,
     );
     this.tts = new TtsAdapter(this.settings);
+    this.opencv = new OpenCvPreprocessor(this.settings);
+    this.asr = new LocalAsr(this.settings);
   }
 
   private buildKernel(settings: Settings): AgentKernel {
@@ -99,16 +118,24 @@ export class Runtime {
         const nextModel = new OpenAICompatibleModel(nextSettings.model);
         const nextKernel = this.buildKernel(nextSettings);
         const oldKernel = this.kernel;
+        const nextSummary = new RollingSummaryService(
+          nextSettings,
+          nextModel,
+          this.database,
+        );
+        const oldSummary = this.summary;
       const nextEmbedding = new EmbeddingService(nextSettings, {
         database: this.database,
       });
         const oldEmbedding = this.embedding;
         const nextMcp = new McpManager(nextSettings);
         const oldMcp = this.mcp;
+        const nextOpencv = new OpenCvPreprocessor(nextSettings);
         const oldTts = this.tts;
         this.settings = nextSettings;
         this.model = nextModel;
         this.kernel = nextKernel;
+        this.summary = nextSummary;
         this.embedding = nextEmbedding;
         this.memory = new MemoryService(nextSettings, this.database);
         this.recall = new RecallService(
@@ -124,9 +151,12 @@ export class Runtime {
           this.memory,
         );
         this.tts = new TtsAdapter(nextSettings);
+        this.opencv = nextOpencv;
+        this.asr = new LocalAsr(nextSettings);
         await oldKernel.close().catch((error: unknown) => {
           console.warn("[运行时] 旧 Agent 内核关闭失败：", error);
         });
+        await oldSummary.close();
         await oldEmbedding.close();
         await oldMcp.close();
         await nextMcp.start();
@@ -139,11 +169,35 @@ export class Runtime {
 
   async close(): Promise<void> {
     this.pending.clear();
+    this.runs.close();
+    await this.summary.close();
     await this.embedding.close();
     await this.mcp.close();
     await this.tts.close();
     await this.kernel.close();
     this.database.close();
+  }
+
+  get isShuttingDown(): boolean {
+    return this.shuttingDown;
+  }
+
+  beginShutdown(message: string): number {
+    this.shuttingDown = true;
+    return this.realtime.notifyShutdown(message);
+  }
+
+  onShutdownRequested(handler: (reason: string) => void): () => void {
+    this.shutdownRequestHandlers.add(handler);
+    return () => this.shutdownRequestHandlers.delete(handler);
+  }
+
+  requestShutdown(reason: string): boolean {
+    if (this.shutdownRequestHandlers.size === 0) return false;
+    for (const handler of this.shutdownRequestHandlers) {
+      handler(reason);
+    }
+    return true;
   }
 
   async initialize(): Promise<void> {

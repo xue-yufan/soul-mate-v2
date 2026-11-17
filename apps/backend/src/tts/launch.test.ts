@@ -80,4 +80,39 @@ describe("resolveTtsLaunch", () => {
     expect(launch.env.UV_CACHE_DIR).toBe(cacheDir);
     expect(fs.existsSync(cacheDir)).toBe(true);
   });
+
+  it("builds an OpenVINO Qwen3 TTS launch with the NPU device", () => {
+    const root = temporaryDirectory();
+    const python = path.join(root, "tts-env", "Scripts", "python.exe");
+    const modelDir = path.join(root, "models", "qwen3-tts");
+    const backendDir = path.join(root, "backend");
+    fs.mkdirSync(path.dirname(python), { recursive: true });
+    fs.mkdirSync(modelDir, { recursive: true });
+    fs.mkdirSync(backendDir, { recursive: true });
+    fs.writeFileSync(python, "");
+    const value = {
+      tts: {
+        provider: "openvino",
+        python_command: python,
+        model_dir: modelDir,
+        base_url: "http://127.0.0.1:9890",
+        device: "NPU",
+        speaker: "Serena",
+        language: "Chinese",
+        instruct: "",
+      },
+    } as Settings;
+
+    const launch = resolveTtsLaunch(value, {
+      backendRootDir: backendDir,
+    });
+
+    expect(launch.mode).toBe("openvino");
+    expect(launch.command).toBe(python);
+    expect(launch.args).toContain("--device");
+    expect(launch.args).toContain("NPU");
+    expect(launch.args).toContain("--model-dir");
+    expect(launch.args).toContain(modelDir);
+    expect(launch.args).toContain("9890");
+  });
 });

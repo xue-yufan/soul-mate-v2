@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 interface PendingConfirm {
   resolve: (allowed: boolean) => void;
   timer: NodeJS.Timeout;
+  ownerId?: string;
 }
 
 export class PendingRegistry {
@@ -28,6 +29,7 @@ export class PendingRegistry {
     confirmId: string,
     timeoutMs: number,
     signal?: AbortSignal,
+    ownerId?: string,
   ): Promise<boolean> {
     return new Promise((resolve) => {
       if (signal?.aborted) {
@@ -50,14 +52,38 @@ export class PendingRegistry {
       }, timeoutMs);
       onAbort = (): void => finish(false);
       signal?.addEventListener("abort", onAbort, { once: true });
-      this.entries.set(confirmId, { resolve: finish, timer });
+      this.entries.set(confirmId, {
+        resolve: finish,
+        timer,
+        ...(ownerId ? { ownerId } : {}),
+      });
     });
   }
 
-  resolve(confirmId: string, allowed: boolean): boolean {
+  resolve(
+    confirmId: string,
+    allowed: boolean,
+    ownerId?: string,
+  ): boolean {
     const pending = this.entries.get(confirmId);
     if (!pending) return false;
+    if (pending.ownerId && ownerId && pending.ownerId !== ownerId) return false;
     pending.resolve(allowed);
+    return true;
+  }
+
+  hasOwner(ownerId: string): boolean {
+    return [...this.entries.values()].some(
+      (pending) => pending.ownerId === ownerId,
+    );
+  }
+
+  resolveForOwner(ownerId: string, allowed: boolean): boolean {
+    const pending = [...this.entries.entries()]
+      .reverse()
+      .find(([, entry]) => entry.ownerId === ownerId);
+    if (!pending) return false;
+    pending[1].resolve(allowed);
     return true;
   }
 

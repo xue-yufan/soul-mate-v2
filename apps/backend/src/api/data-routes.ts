@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { FastifyInstance } from "fastify";
 import type { Runtime } from "../runtime.js";
 import { HttpError, queryInt, queryString, requireFeature } from "./errors.js";
@@ -34,6 +35,24 @@ export function registerDataRoutes(
         ),
       },
     };
+  });
+
+  app.post("/system/shutdown", async () => {
+    const accepted = runtime.requestShutdown("桌面端请求关闭后端");
+    if (!accepted) throw new HttpError(503, "后端关闭处理器尚未就绪");
+    return { ok: true };
+  });
+
+  app.get("/data/backup", async (_request, reply) => {
+    const backup = runtime.database.backup("manual");
+    if (!backup) {
+      throw new HttpError(500, "当前数据库不支持文件备份");
+    }
+    return reply
+      .type("application/vnd.sqlite3")
+      .header("Content-Disposition", `attachment; filename="${backup.fileName}"`)
+      .header("Content-Length", String(backup.sizeBytes))
+      .send(fs.createReadStream(backup.path));
   });
 
   app.get("/history/messages", async (request) => {

@@ -85,6 +85,55 @@ const tools: ToolHost = {
 };
 
 describe("TypeScriptAgentKernel", () => {
+  it("forwards an ordinary first text chunk before the stream finishes", async () => {
+    const model = {
+      async *stream(): AsyncIterable<ModelStreamChunk> {
+        yield { delta: "前半" };
+        yield { delta: "后半" };
+      },
+    };
+    const emptyTools: ToolHost = {
+      async listTools() {
+        return [];
+      },
+      async *execute() {
+        return;
+      },
+    };
+    const context: AgentRunContext = {
+      model,
+      history: {
+        async loadRecent() {
+          return [];
+        },
+        async loadSummary() {
+          return null;
+        },
+      },
+      recall: {
+        async recall() {
+          return "";
+        },
+      },
+      tools: emptyTools,
+      systemPrompt: "你是测试角色。",
+      modelName: "fake",
+      historyTurns: 3,
+      maxToolSteps: 2,
+      runTimeoutMs: 5000,
+    };
+
+    const deltas: string[] = [];
+    for await (const event of new TypeScriptAgentKernel().run(
+      { text: "继续", requestId: "r-first", sessionId: "default" },
+      context,
+    )) {
+      if (event.type === "text_delta") deltas.push(String(event.data.text));
+    }
+
+    expect(deltas).toEqual(["前半", "后半"]);
+  });
+
   it("streams emotion and completes a tool round", async () => {
     const model = new FakeModel();
     const context: AgentRunContext = {

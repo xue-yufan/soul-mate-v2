@@ -12,11 +12,15 @@
         "typecheck": "vue-tsc --noEmit && tsc --noEmit -p electron/tsconfig.json",
         "test": "vitest run",
         "test:watch": "vitest",
+        "smoke": "node scripts/smoke-electron.mjs --built",
+        "smoke:dist": "node scripts/smoke-electron.mjs --packaged",
+        "smoke:voice": "node scripts/smoke-electron.mjs --packaged --expect-voice",
         "preview": "node scripts/electron-vite.mjs preview",
-        "electron:build": "npm --prefix ../.. run build:backend && npm run build && electron-builder --config.electronDist=node_modules/electron/dist",
-        "dist": "npm --prefix ../.. run build:backend && npm run build && electron-builder --win --x64 --config.electronDist=node_modules/electron/dist",
-        "dist:portable": "npm --prefix ../.. run build:backend && npm run build && electron-builder --win portable --x64 --config.electronDist=node_modules/electron/dist",
-        "dist:dir": "npm --prefix ../.. run build:backend && npm run build && electron-builder --dir --config.electronDist=node_modules/electron/dist",
+        "electron:build": "npm --prefix ../.. run build:package-deps && npm run build && electron-builder --config.electronDist=node_modules/electron/dist",
+        "dist": "npm --prefix ../.. run build:package-deps && npm run build && electron-builder --win --x64 --config.electronDist=node_modules/electron/dist",
+        "dist:portable": "npm --prefix ../.. run build:package-deps && npm run build && electron-builder --win portable --x64 --config.electronDist=node_modules/electron/dist",
+        "package:dir": "electron-builder --dir --config.electronDist=node_modules/electron/dist",
+        "dist:dir": "npm --prefix ../.. run build:package-deps && npm run build && npm run package:dir",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "format": "prettier --write \"src/**/*.{ts,vue,css}\" \"electron/**/*.ts\"",
@@ -88,7 +92,7 @@
                 ]
             },
             {
-                "from": "../../.tmp-cargo-target/release",
+                "from": "../../.cargo-target/release",
                 "to": "agent-rust",
                 "filter": [
                     "soul-mate-agent-rust.exe",
@@ -103,7 +107,16 @@
                 ]
             },
             {
-                "from": "../../.tmp-cargo-target/release",
+                "from": "../../packages/vision-opencv/dist",
+                "to": "vision-opencv",
+                "filter": [
+                    "soul-mate-vision-opencv.exe",
+                    "soul-mate-vision-opencv",
+                    "opencv_world*.dll"
+                ]
+            },
+            {
+                "from": "../../.cargo-target/release",
                 "to": "mcp-rust",
                 "filter": [
                     "soul-mate-mcp-rust.exe",

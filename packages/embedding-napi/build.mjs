@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const packageDir = path.dirname(fileURLToPath(import.meta.url));
 const workspaceDir = path.resolve(packageDir, "../..");
-const targetDir = path.join(workspaceDir, ".tmp-cargo-target");
+const targetDir = path.join(workspaceDir, ".cargo-target");
 const result = spawnSync(
   "cargo",
   [

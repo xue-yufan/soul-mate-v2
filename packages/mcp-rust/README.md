@@ -59,7 +59,7 @@ npm run test -w @soul-mate/backend
 发布二进制：
 
 ```text
-.tmp-cargo-target/release/soul-mate-mcp-rust.exe
+.cargo-target/release/soul-mate-mcp-rust.exe
 ```
 
 Electron 打包后位于：

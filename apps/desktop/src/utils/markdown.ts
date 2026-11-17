@@ -10,83 +10,72 @@ import { markedHighlight } from "marked-highlight";
 const purifier = createDOMPurify(window);
 
 const marked = new Marked(
-    markedHighlight({
-        langPrefix: "hljs language-",
-        highlight(code: string, lang: string): string {
-            const language = lang && hljs.getLanguage(lang) ? lang : "plaintext";
-            try {
-                return hljs.highlight(code, { language }).value;
-            } catch {
-                return code;
-            }
-        },
-    }),
+  markedHighlight({
+    langPrefix: "hljs language-",
+    highlight(code: string, lang: string): string {
+      const language = lang && hljs.getLanguage(lang) ? lang : "plaintext";
+      try {
+        return hljs.highlight(code, { language }).value;
+      } catch {
+        return code;
+      }
+    },
+  }),
 );
 
 marked.setOptions({
-    gfm: true, // GitHub Flavored Markdown
-    breaks: true, // 单个换行也换行
+  gfm: true, // GitHub Flavored Markdown
+  breaks: true, // 单个换行也换行
 });
 
 // ---------- 净化配置 ----------
 
 const PURIFY_CONFIG = {
-    ALLOWED_TAGS: [
-        "p",
-        "br",
-        "hr",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "strong",
-        "em",
-        "del",
-        "code",
-        "pre",
-        "blockquote",
-        "ul",
-        "ol",
-        "li",
-        "a",
-        "img",
-        "table",
-        "thead",
-        "tbody",
-        "tr",
-        "th",
-        "td",
-        "span",
-        "div",
-    ],
-    ALLOWED_ATTR: [
-        "href",
-        "title",
-        "target",
-        "rel",
-        "src",
-        "alt",
-        "width",
-        "height",
-        "class",
-        "id",
-    ],
-    ALLOW_DATA_ATTR: false,
+  ALLOWED_TAGS: [
+    "p",
+    "br",
+    "hr",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "strong",
+    "em",
+    "del",
+    "code",
+    "pre",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "a",
+    "img",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "span",
+    "div",
+  ],
+  ALLOWED_ATTR: ["href", "title", "target", "rel", "src", "alt", "width", "height", "class", "id"],
+  ALLOW_DATA_ATTR: false,
 };
 
 purifier.addHook("afterSanitizeAttributes", (node) => {
-    if (node.tagName !== "IMG") return;
-    const src = node.getAttribute("src") ?? "";
-    if (!src || /^(?:data:image\/|blob:)/i.test(src)) return;
-    if (src.startsWith("//")) {
-        node.removeAttribute("src");
-        return;
-    }
-    if (/^[a-z][a-z0-9+.-]*:/i.test(src)) {
-        node.removeAttribute("src");
-    }
+  if (node.tagName !== "IMG") return;
+  const src = node.getAttribute("src") ?? "";
+  if (!src || /^(?:data:image\/|blob:)/i.test(src)) return;
+  if (src.startsWith("//")) {
+    node.removeAttribute("src");
+    return;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src)) {
+    node.removeAttribute("src");
+  }
 });
 
 // ---------- 渲染 ----------
@@ -97,30 +86,30 @@ purifier.addHook("afterSanitizeAttributes", (node) => {
  * 输入空串返回空串。
  */
 export function renderMarkdown(md: string): string {
-    if (!md) {
-        return "";
-    }
+  if (!md) {
+    return "";
+  }
 
-    let html: string;
-    try {
-        html = marked.parse(md) as string;
-    } catch (err) {
-        console.warn("[文本渲染] Markdown 解析失败：", err);
-        return escapeHtml(md);
-    }
+  let html: string;
+  try {
+    html = marked.parse(md) as string;
+  } catch (err) {
+    console.warn("[文本渲染] Markdown 解析失败：", err);
+    return escapeHtml(md);
+  }
 
-    // 净化
-    return purifier.sanitize(html, PURIFY_CONFIG) as unknown as string;
+  // 净化
+  return purifier.sanitize(html, PURIFY_CONFIG) as unknown as string;
 }
 
 /**
  * 纯文本转义，作为解析失败时的兜底
  */
 function escapeHtml(text: string): string {
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

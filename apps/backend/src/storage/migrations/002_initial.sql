@@ -1,11 +1,15 @@
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 INSERT INTO meta(key, value) VALUES ('schema_version', '2')
 ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,

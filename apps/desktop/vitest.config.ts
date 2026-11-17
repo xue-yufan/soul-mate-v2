@@ -12,7 +12,7 @@ export default defineConfig({
     },
     test: {
         environment: "happy-dom",
-        include: ["src/**/*.test.ts"],
+        include: ["src/**/*.test.ts", "electron/**/*.test.ts"],
         clearMocks: true,
         restoreMocks: true,
         mockReset: true,

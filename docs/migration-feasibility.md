@@ -17,11 +17,11 @@ capabilities that depended on the Python ecosystem:
 | SQLite history/audit/cost                  | Ported with `node:sqlite`                                     | Requires Node >= 24                      |
 | OpenAI-compatible streaming                | Ported with native `fetch`                                    | Straightforward                          |
 | Supervisor / chat / info / tools           | Ported as a lightweight state machine                         | Straightforward                          |
-| Tool confirmation and camera frame request | Ported                                                        | Requires end-to-end UI test              |
+| Tool confirmation and camera frame request | Ported                                                        | Packaging smoke test added               |
 | Documents/worldbook/memory CRUD            | Ported                                                        | Straightforward                          |
 | Semantic memory + Chroma                   | Lexical retrieval plus Rust N-API embeddings/sidecar fallback | No old Chroma data migration             |
 | Per-turn memory extraction                 | Ported through the model                                      | Quality depends on model JSON compliance |
-| Context summarization                      | History limits preserved; rolling summary is reserved         | Partial parity                           |
+| Context summarization                      | Rolling summary with persisted message watermark              | Ported                                   |
 | MCP client                                 | Windows stdio gateway in Rust; HTTP transport remains absent  | No external MCP SDK dependency           |
 | GPT-SoVITS TTS                             | Ported over HTTP                                              | Requires a running local engine          |
 | Edge TTS                                   | Not bundled in this version                                   | Largest TTS parity gap                   |

@@ -14,6 +14,7 @@
             </span>
             <div class="topbar-right">
                 <button
+                    data-testid="voice-input"
                     class="icon-btn"
                     :class="{ active: camera.enabled.value }"
                     :disabled="
@@ -26,6 +27,22 @@
                     @click="camera.toggle"
                 >
                     <AppIcon name="camera" />
+                </button>
+                <button
+                    class="icon-btn"
+                    :class="{ active: voice.recording.value }"
+                    :disabled="
+                        !voice.supported.value ||
+                        ws.status.value !== 'connected' ||
+                        !voiceAvailable ||
+                        chat.isGenerating.value ||
+                        voice.transcribing.value
+                    "
+                    :title="voiceText"
+                    :aria-label="voiceText"
+                    @click="voice.toggle"
+                >
+                    <AppIcon name="microphone" />
                 </button>
                 <button
                     class="icon-btn"
@@ -77,8 +94,8 @@
 
         <footer class="statusbar">
             <span>
-                {{ backendText }} · {{ wsText }} · {{ ttsText }} ·
-                {{ camera.statusText.value }}
+                {{ backendText }} · {{ wsText }} · {{ ttsText }} · {{ camera.statusText.value }} ·
+                {{ voice.statusText.value }}
             </span>
             <span class="version">v{{ appVersion }}</span>
         </footer>
@@ -109,6 +126,7 @@ import { useConfig } from "@/composables/useConfig";
 import { useLocalSettings } from "@/composables/useLocalSettings";
 import { useTts } from "@/composables/useTts";
 import { useVisionCamera } from "@/composables/useVisionCamera";
+import { useVoiceInput } from "@/composables/useVoiceInput";
 import { useWebSocket } from "@/composables/useWebSocket";
 import type { BackendSnapshot } from "@/types/electron";
 
@@ -154,6 +172,9 @@ const ws = useWebSocket();
 const tts = useTts(localSettings.settings);
 const chat = useChat(ws, tts);
 const camera = useVisionCamera(ws);
+const voice = useVoiceInput(ws, (text) => chat.sendText(text));
+
+const voiceAvailable = computed(() => configState.config.value?.voice.available ?? false);
 
 const cameraText = computed(() => {
     if (configState.config.value?.features.vision === false) {
@@ -166,6 +187,18 @@ const cameraText = computed(() => {
         return "视觉感知已开启；她可以在需要时抓取一帧";
     }
     return "开启视觉感知；她会在需要时自主判断是否看一眼";
+});
+
+const voiceText = computed(() => {
+    if (!voice.supported.value) return "当前系统没有可用的麦克风接口";
+    if (!configState.config.value?.features.voice) {
+        return "本地语音输入已在设置中关闭";
+    }
+    if (!voiceAvailable.value) {
+        return configState.config.value?.voice.message ?? "未找到可用的本地语音识别引擎";
+    }
+    if (voice.error.value) return `${voice.statusText.value}：${voice.error.value}`;
+    return voice.statusText.value;
 });
 
 const wsText = computed(() => {

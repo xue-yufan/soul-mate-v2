@@ -164,17 +164,29 @@ export const lookThroughCameraTool: Tool = {
         timeoutMs: context.settings.vision.capture_timeout_s * 1000,
         signal: context.signal,
       });
+      const preprocessed = await context.visionPreprocessor?.process(
+        frame.image,
+        frame.mimeType,
+      );
+      const image = preprocessed?.image ?? frame.image;
+      const mimeType = preprocessed?.mimeType ?? frame.mimeType;
       const { observeImage } = await import("../vision/observer.js");
       const observation = await observeImage(
         context.settings,
-        frame.image,
-        frame.mimeType,
+        image,
+        mimeType,
         question,
         context.signal,
       );
       return toolResult(true, observation, null, {
-        mime_type: frame.mimeType,
-        image_bytes: frame.image.length,
+        mime_type: mimeType,
+        image_bytes: image.length,
+        original_image_bytes: frame.image.length,
+        opencv_used: preprocessed?.used ?? false,
+        opencv_metrics: preprocessed?.metrics ?? null,
+        opencv_applied: preprocessed?.applied ?? [],
+        opencv_elapsed_ms: preprocessed?.elapsedMs ?? null,
+        opencv_fallback_reason: preprocessed?.fallbackReason ?? null,
       });
     } catch (error) {
       return toolResult(

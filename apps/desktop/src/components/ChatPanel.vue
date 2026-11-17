@@ -64,17 +64,17 @@
                 aria-label="消息输入"
                 :placeholder="
                     chat.pendingConfirm.value
-                        ? '请先在上方选择允许或拒绝'
+                        ? '可回复“可以”或“不必了”，也可使用上方按钮'
                         : '输入消息，Enter 发送，Shift+Enter 换行'
                 "
                 rows="1"
-                :disabled="!connected || chat.pendingConfirm.value !== null"
+                :disabled="!connected"
                 @keydown="onKeydown"
             />
             <button class="send-btn" :disabled="!canSend" @click="onSend">
                 {{
                     chat.pendingConfirm.value
-                        ? "待确认"
+                        ? "回复"
                         : chat.isGenerating.value
                           ? "生成中..."
                           : "发送"
@@ -108,8 +108,7 @@ const connected = computed(() => props.connectionStatus === "connected");
 const canSend = computed(
     () =>
         connected.value &&
-        !props.chat.isGenerating.value &&
-        props.chat.pendingConfirm.value === null &&
+        (props.chat.pendingConfirm.value !== null || !props.chat.isGenerating.value) &&
         !props.chat.historyLoading.value &&
         draft.value.trim() !== "",
 );

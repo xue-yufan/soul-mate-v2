@@ -10,6 +10,7 @@ import type { McpManager } from "../mcp/manager.js";
 import type { Persona } from "../persona/index.js";
 import type { PendingRegistry } from "../permission/pending.js";
 import type { CameraBroker } from "../vision/camera-broker.js";
+import type { OpenCvPreprocessor } from "../vision/opencv.js";
 import { builtinTools, lookThroughCameraTool } from "../tools/builtin.js";
 import { definition } from "../tools/types.js";
 
@@ -20,6 +21,8 @@ export class RequestToolHost implements ToolHost {
     private readonly pending: PendingRegistry,
     private readonly cameraBroker: CameraBroker,
     private readonly mcp: McpManager,
+    private readonly pendingOwner?: string,
+    private readonly visionPreprocessor?: OpenCvPreprocessor,
   ) {}
 
   async listTools(context: ToolCallContext): Promise<ToolDefinition[]> {
@@ -93,6 +96,12 @@ export class RequestToolHost implements ToolHost {
     if (decision === "confirm") {
       const confirmId = this.pending.createId();
       const timeoutS = this.settings.permission.confirm_timeout_s;
+      const allowedPromise = this.pending.waitFor(
+        confirmId,
+        timeoutS * 1000,
+        context.signal,
+        this.pendingOwner,
+      );
       yield {
         type: "tool_confirm_request",
         data: {
@@ -105,11 +114,7 @@ export class RequestToolHost implements ToolHost {
           prompt: this.persona.confirmPrompt(tool.name, args, tool.confirmKey),
         },
       };
-      allowed = await this.pending.waitFor(
-        confirmId,
-        timeoutS * 1000,
-        context.signal,
-      );
+      allowed = await allowedPromise;
     }
 
     if (!allowed) {
@@ -131,6 +136,9 @@ export class RequestToolHost implements ToolHost {
       requestId: context.requestId,
       signal: context.signal,
       cameraBroker: this.cameraBroker,
+      ...(this.visionPreprocessor
+        ? { visionPreprocessor: this.visionPreprocessor }
+        : {}),
     });
     yield {
       type: "tool_result",

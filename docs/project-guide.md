@@ -38,7 +38,7 @@ Fastify 后端
   ├─ OpenAI 兼容模型适配器
   ├─ SQLite 持久化
   ├─ Rust MCP Gateway（Windows stdio）
-  └─ 工具、视觉、GPT-SoVITS 适配器
+  └─ 工具、视觉、OpenVINO/GPT-SoVITS TTS 适配器
 
 Agent Contracts
   ├─ ModelPort
@@ -109,7 +109,7 @@ docs/
   -> 必要时调用工具并等待用户确认
   -> 保存助手/工具消息
   -> 计算成本并发送 run_finished
-  -> 异步提取长期记忆
+  -> 异步更新滚动摘要并提取长期记忆
 ```
 
 流式事件包括：
@@ -129,7 +129,9 @@ docs/
 
 需要确认的工具会发送 `tool_confirm_request`。前端显示“允许”和“拒绝”按钮，
 并通过 `tool_confirm` 返回 `confirm_id`。后端用同一个连接和确认 ID 恢复工具
-执行；用户拒绝、超时、连接断开或 Agent 超时都会终止等待。
+执行；用户也可以直接回复“可以”“好，准了”“不必了”等自然语言。含糊回复只
+会产生一句澄清，不会启动新的 Agent 轮次。确认问句会作为 assistant 消息落库，
+刷新历史后仍可看到。用户拒绝、超时、连接断开或 Agent 超时都会终止等待。
 
 ## 5. 桌面端
 
@@ -159,7 +161,7 @@ docs/
 `useChat` 管理用户消息、流式助手消息、工具卡片、确认请求、历史分页和重新生成。
 
 - 初次历史加载期间禁止发送，避免异步历史覆盖新消息。
-- 工具确认使用显式按钮，不再把“可以”当作普通聊天消息。
+- 工具确认同时支持显式按钮和自然语言回复；待确认期间输入框保持可用。
 - 重新生成会先调用后端截断最后一轮，再重新发送原用户文本。
 - 清空历史只有在后端成功后才清空界面。
 
@@ -204,6 +206,8 @@ apps/desktop/public/model/character/xiadie.vrm
 | `PATCH /config`                | 更新白名单配置           |
 | `GET/DELETE /history/messages` | 查询/清空历史            |
 | `POST /history/regenerate`     | 截断最后一轮用于重新生成 |
+| `GET /data/backup`             | 生成并下载完整 SQLite 备份 |
+| `POST /system/shutdown`        | 桌面端请求后端优雅关闭   |
 | `/memory/facts`                | 长期记忆 CRUD            |
 | `/documents`                   | 文档导入、列表和切块查询 |
 | `/worldbook`                   | 世界书 CRUD              |
@@ -218,12 +222,35 @@ apps/desktop/public/model/character/xiadie.vrm
   "v": 1,
   "type": "auth",
   "request_id": "auth",
-  "data": { "token": "..." }
+  "data": { "token": "...", "client_id": "稳定的客户端 ID" }
 }
 ```
 
 桌面端从 IPC 获取令牌。普通独立后端调试如果未设置
 `SOUL_MATE_LOCAL_TOKEN`，则不会启用令牌校验。
+
+后端鉴权成功后发送 `auth_ok`。运行事件带有从 1 递增的 `seq`；浏览器网络中断
+时会保留当前回合 30 秒，并使用同一个 `client_id` 发送：
+
+```json
+{
+  "v": 1,
+  "type": "resume_run",
+  "request_id": "原回合 ID",
+  "data": { "after_seq": 12 }
+}
+```
+
+后端补发 `seq > after_seq` 的事件。正常结束后再保留两分钟，供刚断线的客户端
+拿到 `run_finished`。超过恢复时限时运行被取消，并补发 `connection_lost`；
+后端重启导致内存缓存丢失时发送 `run_not_found`，前端会从 SQLite 历史对账。
+
+启用记忆或 RAG 但本地嵌入内核不可用时，后端会在当前连接第一次发送消息时
+发送一次 `memory_unavailable` 错误事件；后续消息继续使用词项检索，不重复刷提示。
+
+桌面端停止或重启后端时先调用受本地令牌保护的 `POST /system/shutdown`。后端向
+所有 WebSocket 广播 `server_shutdown`，等待 `server.ws_notify_delay_s` 后关闭；
+如果优雅停机请求失败，Electron 再按既有超时强制回收进程。
 
 ### 6.3 Agent 内核
 
@@ -261,6 +288,22 @@ apps/backend/data/soul_mate.db
 SQLite 使用 WAL、外键和事务。历史加载按完整用户轮次截取，避免把
 assistant/tool 调用序列从中间截断后发送给模型。
 
+滚动摘要默认按最近 6 轮估算 token，达到
+`agent.summary_trigger_tokens` 后，把除最近
+`agent.summary_keep_recent_turns` 轮之外的未摘要消息与已有摘要合并。摘要通过
+`session_summaries.summarized_through_rowid` 记录水位，避免每轮重复压缩同一批
+消息；模型生成失败时保留原摘要。摘要生成在 Node 宿主中异步执行，模型不可用
+不影响当前轮回复。
+
+数据库迁移由 `src/storage/migrations` 中的有序 SQL 文件驱动，版本同时记录在
+`meta.schema_version`、`PRAGMA user_version` 和 `schema_migrations` 中。应用
+拒绝打开高于当前版本支持的数据库；旧库升级前会先创建可校验的完整快照。
+
+启动时会执行 `PRAGMA quick_check`，并在已有数据库上每天保留一份自动备份。
+自动快照和迁移前备份位于数据目录的 `backups` 子目录，最多保留最近 10 份。
+设置页「数据」可以导出单文件 SQLite 备份，也可以在停止后端、校验备份和保留
+当前库副本后恢复；恢复后的启动失败会尝试自动回滚。
+
 ## 8. 工具、视觉与语音
 
 ### 8.1 内置工具
@@ -278,20 +321,44 @@ assistant/tool 调用序列从中间截断后发送给模型。
 回传，后端再调用本地 Ollama 兼容视觉接口。摄像头轨道在连接断开或组件卸载时
 会停止。
 
+可选的 OpenCV C++ sidecar 用于验证单帧预处理是否值得进入正式视觉链路。默认
+关闭；启用后，后端通过 NDJSON 启动一次独立进程，获取清晰度、亮度、对比度和
+预处理图。sidecar 缺失、超时、非零退出或返回非法数据时自动使用原图，不影响
+视觉模型调用。当前验证模块只做受限缩放、CLAHE 和轻量锐化，不包含 OCR、
+透视校正或连续视频分析。构建命令为 `npm run build:vision-opencv`。发布构建
+会把可执行文件和 `opencv_world*.dll` 一起放进 `resources/vision-opencv`。
+
 ### 8.3 语音
 
-当前支持 GPT-SoVITS HTTP `/tts`。后端按句切分并异步合成，发送 base64 WAV；
-前端通过 Web Audio 播放并计算口型包络。`finish()` 会等待正在合成的句子，
-避免最后一段音频被连接清理提前丢弃。
+当前默认使用本地 OpenVINO Piper VITS。后端按句切分并异步合成，发送 base64
+WAV；前端通过 Web Audio 播放并计算口型包络。`finish()` 会等待正在合成的
+句子，避免最后一段音频被连接清理提前丢弃。
 
-后端会记录 TTS 是否启用、提供方、缺失配置、参考音频是否存在、本地引擎权重
-数量和 HTTP 服务是否在启动时可访问。日志不会输出 API 密钥。
-如果未探测到现有服务，后端优先直接启动
-`.venv/Scripts/gpt-sovits-api-v2.exe`；虚拟环境不存在时才回退到
-`uv run --locked gpt-sovits-api-v2`。`uv` 缓存固定写入应用数据目录下的
-`uv-cache`，不依赖用户全局缓存权限。GPT-SoVITS 会读写应用数据目录中的
-`tts/tts_infer.yaml` 副本，因此外部引擎目录可以保持只读。启动过程不阻塞
-HTTP/WebSocket 就绪；关闭后端时会一并关闭该子进程。
+OpenVINO TTS 模型拆成 CPU 声学前端和 GPU 声码器。声码器按 64 帧形状分桶，
+每个桶只编译一次；本机缓存后同一句 HTTP 延迟约 0.11 秒。模型目录至少包含
+`front.onnx`、`decoder.onnx`、`tokens.txt` 和 `lexicon.txt`。
+
+GPT-SoVITS 仍保留为可选 provider。选中 `gpt_sovits` 后，后端会探测并启动
+本地 HTTP 服务；日志不输出 API 密钥。启动过程不阻塞 HTTP/WebSocket 就绪，
+关闭后端时会一并关闭由应用启动的 TTS 子进程。
+
+### 8.4 本地语音输入
+
+顶栏麦克风使用 Web Audio 采集单声道音频，停止录音后线性重采样到 16 kHz
+并编码为 16-bit PCM WAV，通过 `audio_input` 消息发送到后端。基础能量 VAD
+会在检测到说话后等待 1.2 秒静音自动结束，单次最长 30 秒。
+
+后端 `LocalAsr` 的 `auto` 顺序为 sherpa-onnx、whisper.cpp。显式配置了命令时
+优先使用该命令；目录和参数不完整则继续尝试后续引擎。语音协议：
+
+- 客户端 `audio_input`：Base64 WAV、采样率、时长。
+- 服务端 `transcription_started`：实际引擎。
+- 服务端 `transcription_result`：识别文本、引擎和耗时。
+- 服务端 `transcription_error`：引擎缺失、音频格式、超时或执行失败。
+
+识别成功后前端把文本交给原有 `chat.sendText()`，不会绕开历史、工具确认、
+记忆和 TTS。引擎和模型由用户安装，仓库不附带二进制权重。详细配置与占位符见
+[local-voice-asr.md](local-voice-asr.md)。
 
 ## 9. 配置
 
@@ -424,7 +491,13 @@ npm run test
 npm run lint -w soul-mate-frontend
 npm run format:check -w soul-mate-frontend
 npm run build
+npm run build:release
+npm run smoke:electron
 ```
+
+完整发布验证可先运行 `npm run dist:dir -w soul-mate-frontend`，再运行
+`npm run smoke:dist`。烟雾测试会校验 Rust、N-API、MCP、OpenCV 资源，并启动
+Electron 等待后端和 WebSocket 就绪。
 
 ### 打包
 
@@ -452,7 +525,7 @@ Windows 可能保留 `5173` 所在端口范围。项目已固定使用 `5300`。
 
 该值对应 `0x80000003`。开发启动脚本会：
 
-1. 删除 IDE 泄漏的 `ELECTRON_RUN_AS_NODE`；
+1. 删除 IDE 泄漏的 `ELECTRON_RUN_AS_NODE` 和 `CHROME_CRASHPAD_PIPE_NAME`；
 2. 显式指定 Electron 二进制路径；
 3. 修复 Electron 依赖目录的继承权限和完整性级别。
 
@@ -472,12 +545,16 @@ Windows 可能保留 `5173` 所在端口范围。项目已固定使用 `5300`。
 ### 工具确认一直等待
 
 确认前端发送的是 `tool_confirm`，而不是普通 `text_input`。普通聊天消息在 Agent
-忙碌时会被后端判定为 `busy`。
+忙碌时会被后端判定为 `busy`；如果当前连接确实有一个等待中的工具确认，后端会
+优先把“可以 / 不必了”等明确回复解析为权限答复。
 
 ## 14. 当前限制
 
-- 滚动摘要尚未完全实现。
 - MCP Streamable HTTP 尚未接入。
 - Edge TTS 未内置。
-- 滚动摘要和 MCP HTTP 传输仍有功能缺口。
+- MCP 目前只支持 Windows stdio。
+- 回合补发缓存位于内存：后端进程重启后依靠 SQLite 历史对账，不恢复未落库的半成品。
+- 本地语音识别当前每次录音启动一次引擎进程，尚未实现常驻流式部分转写。
+- TTS 声码器可以显式切到 NPU，但本机实测每 64 帧约 11 秒，当前不适合实时
+  对话；默认使用 GPU。
 - Windows 安装包尚未配置正式代码签名。

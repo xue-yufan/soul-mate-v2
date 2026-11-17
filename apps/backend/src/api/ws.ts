@@ -9,6 +9,8 @@ import type { Runtime } from "../runtime.js";
 import { RequestToolHost } from "../agent/tool-host.js";
 import { logAudit } from "../storage/audit.js";
 import { TtsStream } from "../tts/index.js";
+import { parsePermissionReply } from "../permission/replies.js";
+import { memoryRetrievalUnavailableReason } from "../memory/availability.js";
 
 const ERROR_MESSAGES: Record<string, string> = {
   bad_json: "消息不是合法 JSON",
@@ -22,6 +24,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   tool_loop_limit: "工具调用次数超限",
   memory_unavailable: "记忆检索不可用",
   busy: "上一轮还在进行中",
+  connection_lost: "连接恢复超时",
+  run_not_found: "找不到可恢复的回复",
 };
 
 interface Envelope {
@@ -33,10 +37,12 @@ interface Envelope {
 }
 
 class Connection {
+  readonly transportId = crypto.randomUUID().replaceAll("-", "");
+  private clientId = this.transportId;
   readonly capabilities = new Set<string>();
   authenticated: boolean;
-  active: AbortController | null = null;
   memoryUnavailableNotified = false;
+  transcribing: AbortController | null = null;
 
   constructor(
     readonly socket: WebSocket,
@@ -45,23 +51,58 @@ class Connection {
     this.authenticated = !runtime.localToken;
   }
 
+  get id(): string {
+    return this.clientId;
+  }
+
+  setClientId(value: unknown): void {
+    if (
+      typeof value !== "string" ||
+      !/^[a-zA-Z0-9_-]{16,80}$/.test(value)
+    ) {
+      return;
+    }
+    const previousId = this.clientId;
+    this.clientId = value;
+    this.runtime.realtime.replace(previousId, this);
+  }
+
+  sendRaw(event: Record<string, unknown>): boolean {
+    if (this.socket.readyState !== this.socket.OPEN) return false;
+    this.socket.send(JSON.stringify(event));
+    return true;
+  }
+
   send(
     type: string,
     data: Record<string, unknown> = {},
-    options: { requestId?: string | null; sessionId?: string | null } = {},
-  ): void {
-    if (this.socket.readyState !== this.socket.OPEN) return;
-    this.socket.send(
-      JSON.stringify({
-        v: this.runtime.settings.contracts.ws_event_version,
-        type,
-        request_id: options.requestId ?? null,
-        session_id:
-          options.sessionId ?? this.runtime.settings.agent.default_session_id,
-        ts: new Date().toISOString(),
-        data,
-      }),
-    );
+    options: {
+      requestId?: string | null;
+      sessionId?: string | null;
+      record?: boolean;
+    } = {},
+  ): boolean {
+    const requestId = options.requestId ?? null;
+    const recorded =
+      requestId && options.record !== false
+        ? this.runtime.runs.record(requestId, type, data)
+        : null;
+    const event = {
+      v: this.runtime.settings.contracts.ws_event_version,
+      type,
+      request_id: requestId,
+      session_id:
+        options.sessionId ?? this.runtime.settings.agent.default_session_id,
+      ...(recorded ? { seq: recorded.seq } : {}),
+      ts: recorded?.ts ?? new Date().toISOString(),
+      data,
+    };
+    const target = this.runtime.realtime.current(this.id) ?? this;
+    const sent = target.sendRaw(event);
+    if (recorded && (type === "run_finished" || type === "error")) {
+      this.runtime.runs.finish(requestId!);
+    }
+    return sent;
   }
 
   sendError(
@@ -72,14 +113,22 @@ class Connection {
     this.send("error", { code, message }, { requestId: requestId ?? null });
   }
 
+  notifyMemoryUnavailable(reason: string): void {
+    if (this.memoryUnavailableNotified) return;
+    this.memoryUnavailableNotified = true;
+    this.sendError(
+      "memory_unavailable",
+      `记忆检索不可用（${reason}），本轮回复不会使用长期记忆`,
+    );
+  }
+
   sendCaptureRequest(event: {
     captureId: string;
     question: string;
     reason: string;
     timeoutS: number;
   }): boolean {
-    if (this.socket.readyState !== this.socket.OPEN) return false;
-    this.send(
+    return this.send(
       "camera_capture_request",
       {
         capture_id: event.captureId,
@@ -89,7 +138,29 @@ class Connection {
       },
       { requestId: null },
     );
-    return true;
+  }
+
+  replayRun(
+    requestId: string,
+    sessionId: string,
+    events: Array<{
+      type: string;
+      data: Record<string, unknown>;
+      seq: number;
+      ts: string;
+    }>,
+  ): void {
+    for (const event of events) {
+      this.sendRaw({
+        v: this.runtime.settings.contracts.ws_event_version,
+        type: event.type,
+        request_id: requestId,
+        session_id: sessionId,
+        seq: event.seq,
+        ts: event.ts,
+        data: event.data,
+      });
+    }
   }
 }
 
@@ -147,6 +218,169 @@ function isPersistedMessage(value: unknown): value is PersistedAgentMessage {
   );
 }
 
+async function handleNaturalPermissionReply(
+  connection: Connection,
+  sessionId: string,
+  userText: string,
+  requestId: string | null,
+): Promise<boolean> {
+  if (!connection.runtime.pending.hasOwner(connection.id)) return false;
+
+  connection.runtime.database.insertUserMessage(sessionId, userText);
+  const allowed = parsePermissionReply(userText);
+  if (allowed === null) {
+    const clarification =
+      connection.runtime.persona.confirmClarification();
+    connection.runtime.database.insertAssistantMessage(
+      sessionId,
+      clarification,
+    );
+    connection.send(
+      "text_delta",
+      { text: clarification },
+      { requestId, sessionId },
+    );
+    return true;
+  }
+
+  if (
+    !connection.runtime.pending.resolveForOwner(connection.id, allowed)
+  ) {
+    connection.sendError(
+      "bad_request",
+      "这次确认已经超时或结束",
+      requestId,
+    );
+  }
+  return true;
+}
+
+async function handleAudioInput(
+  connection: Connection,
+  message: Envelope,
+): Promise<void> {
+  const runtime = connection.runtime;
+  const requestId = requestIdOf(message);
+  if (!requestId) {
+    connection.sendError("bad_request", "audio_input 必须提供 request_id");
+    return;
+  }
+  if (!runtime.settings.features.voice) {
+    connection.send(
+      "transcription_error",
+      {
+        code: "asr_disabled",
+        message: "本地语音输入未启用",
+      },
+      { requestId },
+    );
+    return;
+  }
+  const status = runtime.asr.status();
+  if (!status.available) {
+    connection.send(
+      "transcription_error",
+      {
+        code: "asr_unavailable",
+        message: status.message,
+      },
+      { requestId },
+    );
+    return;
+  }
+  if (
+    connection.transcribing ||
+    runtime.runs.hasActiveClient(connection.id)
+  ) {
+    connection.send(
+      "transcription_error",
+      {
+        code: "busy",
+        message: "上一轮对话或语音识别尚未结束",
+      },
+      { requestId },
+    );
+    return;
+  }
+  const data =
+    typeof message.data === "object" && message.data !== null
+      ? (message.data as Record<string, unknown>)
+      : {};
+  if (
+    typeof data.audio !== "string" ||
+    data.mime_type !== "audio/wav" ||
+    data.sample_rate !== 16_000
+  ) {
+    connection.send(
+      "transcription_error",
+      {
+        code: "bad_audio",
+        message: "语音输入必须是 16 kHz WAV",
+      },
+      { requestId },
+    );
+    return;
+  }
+  const maxBytes =
+    44 +
+    runtime.settings.voice.max_audio_seconds *
+      16_000 *
+      2;
+  if (
+    data.audio.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(data.audio) ||
+    Math.floor((data.audio.length * 3) / 4) > maxBytes
+  ) {
+    connection.send(
+      "transcription_error",
+      {
+        code: "audio_too_large",
+        message: `录音超过 ${runtime.settings.voice.max_audio_seconds} 秒或不是有效 Base64`,
+      },
+      { requestId },
+    );
+    return;
+  }
+
+  const controller = new AbortController();
+  connection.transcribing = controller;
+  connection.send(
+    "transcription_started",
+    { engine: status.engine },
+    { requestId },
+  );
+  try {
+    const result = await runtime.asr.transcribe(
+      Buffer.from(data.audio, "base64"),
+      controller.signal,
+    );
+    connection.send(
+      "transcription_result",
+      {
+        text: result.text,
+        engine: result.engine,
+        elapsed_ms: result.elapsedMs,
+      },
+      { requestId },
+    );
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      connection.send(
+        "transcription_error",
+        {
+          code: "asr_error",
+          message: error instanceof Error ? error.message : String(error),
+        },
+        { requestId },
+      );
+    }
+  } finally {
+    if (connection.transcribing === controller) {
+      connection.transcribing = null;
+    }
+  }
+}
+
 async function handleTextInput(
   connection: Connection,
   message: Envelope,
@@ -155,6 +389,10 @@ async function handleTextInput(
   const runtime = connection.runtime;
   const settings = runtime.settings;
   const requestId = requestIdOf(message);
+  if (!requestId) {
+    connection.sendError("bad_request", "text_input 必须提供 request_id");
+    return;
+  }
   const sessionId = settings.agent.default_session_id;
   const requestedSession = message.session_id;
   if (requestedSession !== undefined && requestedSession !== sessionId) {
@@ -163,10 +401,6 @@ async function handleTextInput(
       `本应用只支持单一会话：${sessionId}`,
       requestId,
     );
-    return;
-  }
-  if (connection.active) {
-    connection.sendError("busy", ERROR_MESSAGES.busy, requestId);
     return;
   }
   const data =
@@ -187,9 +421,49 @@ async function handleTextInput(
     connection.sendError("bad_request", "单次输入不能超过 20000 字", requestId);
     return;
   }
+  if (runtime.isShuttingDown) {
+    connection.sendError(
+      "internal_error",
+      "服务正在关闭，暂不接受新请求",
+      requestId,
+    );
+    return;
+  }
+  if (
+    await handleNaturalPermissionReply(
+      connection,
+      sessionId,
+      userText,
+      requestId,
+    )
+  ) {
+    return;
+  }
+  if (runtime.runs.hasActiveClient(connection.id) || connection.transcribing) {
+    connection.sendError("busy", ERROR_MESSAGES.busy, requestId);
+    return;
+  }
+
+  const memoryReason = memoryRetrievalUnavailableReason(
+    settings,
+    runtime.embedding.status(),
+  );
+  if (memoryReason) {
+    connection.notifyMemoryUnavailable(memoryReason);
+  }
 
   const controller = new AbortController();
-  connection.active = controller;
+  if (
+    !runtime.runs.start({
+      requestId,
+      sessionId,
+      clientId: connection.id,
+      controller,
+    })
+  ) {
+    connection.sendError("busy", ERROR_MESSAGES.busy, requestId);
+    return;
+  }
   const userMessageId = runtime.database.insertUserMessage(sessionId, userText);
   const tools = new RequestToolHost(
     settings,
@@ -197,6 +471,8 @@ async function handleTextInput(
     runtime.pending,
     runtime.camera,
     runtime.mcp,
+    connection.id,
+    runtime.opencv,
   );
   const tts = new TtsStream(
     settings,
@@ -210,7 +486,7 @@ async function handleTextInput(
           text: chunk.text,
           index,
         },
-        { requestId, sessionId },
+        { requestId, sessionId, record: false },
       );
     },
     controller.signal,
@@ -226,7 +502,7 @@ async function handleTextInput(
     for await (const event of runtime.kernel.run(
       {
         text: userText,
-        requestId: requestId ?? crypto.randomUUID(),
+        requestId,
         sessionId,
         currentUserMessageId: userMessageId,
       },
@@ -242,6 +518,7 @@ async function handleTextInput(
           "契约版本已变化，请重连",
           requestId,
         );
+        finished = true;
         break;
       }
       await forwardAgentEvent(connection, event, {
@@ -307,9 +584,17 @@ async function handleTextInput(
             { requestId, sessionId },
           );
 
+          void runtime.summary
+            .maybeSummarize(sessionId)
+            .catch((error: unknown) => {
+              console.warn("[摘要] 后台更新失败：", error);
+            });
           void runtime.extractor.extract(userText, fullText);
         },
       });
+      if (event.type === "error") {
+        finished = true;
+      }
     }
     if (!finished && !controller.signal.aborted) {
       connection.sendError(
@@ -329,7 +614,6 @@ async function handleTextInput(
     }
   } finally {
     tts.stop();
-    connection.active = null;
   }
 }
 
@@ -402,7 +686,13 @@ async function forwardAgentEvent(
     }
     case "tool_confirm_request": {
       const prompt = String(event.data.prompt ?? "");
-      if (prompt) context.tts.feed(prompt);
+      if (prompt) {
+        connection.runtime.database.insertAssistantMessage(
+          context.sessionId,
+          prompt,
+        );
+        context.tts.feed(prompt);
+      }
       connection.send(event.type, event.data, {
         requestId: context.requestId,
         sessionId: context.sessionId,
@@ -491,6 +781,7 @@ export function registerWebSocket(
     { websocket: true },
     (socket: WebSocket, _request: FastifyRequest) => {
       const connection = new Connection(socket, runtime);
+      if (connection.authenticated) runtime.realtime.register(connection);
 
       socket.on("message", (raw) => {
         const text = Buffer.isBuffer(raw) ? raw.toString("utf-8") : String(raw);
@@ -510,7 +801,14 @@ export function registerWebSocket(
             runtime.localToken &&
             tokenMatches(runtime.localToken, data.token)
           ) {
+            connection.setClientId(data.client_id);
             connection.authenticated = true;
+            runtime.realtime.register(connection);
+            connection.send(
+              "auth_ok",
+              { client_id: connection.id },
+              { requestId, record: false },
+            );
           } else {
             connection.sendError(
               "unauthorized",
@@ -571,6 +869,7 @@ export function registerWebSocket(
             typeof message.data === "object" && message.data !== null
               ? (message.data as Record<string, unknown>)
               : {};
+          connection.setClientId(data.client_id);
           const capabilities = Array.isArray(data.capabilities)
             ? data.capabilities.filter(
                 (item): item is string => typeof item === "string",
@@ -589,6 +888,44 @@ export function registerWebSocket(
             "client_hello_ack",
             { capabilities: [...connection.capabilities] },
             { requestId },
+          );
+          return;
+        }
+        if (type === "resume_run") {
+          const data =
+            typeof message.data === "object" && message.data !== null
+              ? (message.data as Record<string, unknown>)
+              : {};
+          const afterSeq = Number(data.after_seq ?? 0);
+          if (
+            !requestId ||
+            !Number.isInteger(afterSeq) ||
+            afterSeq < 0
+          ) {
+            connection.sendError(
+              "bad_request",
+              "resume_run 需要 request_id 和有效的 after_seq",
+              requestId,
+            );
+            return;
+          }
+          const resumed = runtime.runs.resume(
+            requestId,
+            connection.id,
+            afterSeq,
+          );
+          if (!resumed) {
+            connection.sendError(
+              "run_not_found",
+              ERROR_MESSAGES.run_not_found,
+              requestId,
+            );
+            return;
+          }
+          connection.replayRun(
+            requestId,
+            resumed.sessionId,
+            resumed.events,
           );
           return;
         }
@@ -617,6 +954,23 @@ export function registerWebSocket(
           });
           return;
         }
+        if (type === "audio_input") {
+          void handleAudioInput(connection, message).catch(
+            (error: unknown) => {
+              console.error("[语音输入] 处理失败：", error);
+              connection.send(
+                "transcription_error",
+                {
+                  code: "asr_error",
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                },
+                { requestId },
+              );
+            },
+          );
+          return;
+        }
         if (type === "tool_confirm") {
           const data =
             typeof message.data === "object" && message.data !== null
@@ -624,7 +978,18 @@ export function registerWebSocket(
               : {};
           const confirmId =
             typeof data.confirm_id === "string" ? data.confirm_id : "";
-          runtime.pending.resolve(confirmId, data.allowed === true);
+          const resolved = runtime.pending.resolve(
+            confirmId,
+            data.allowed === true,
+            connection.id,
+          );
+          if (!resolved) {
+            connection.sendError(
+              "bad_request",
+              "这次确认已经超时或结束",
+              requestId,
+            );
+          }
           return;
         }
         if (type === "text_input") {
@@ -634,7 +999,6 @@ export function registerWebSocket(
             runtime.settings.contracts.ws_event_version,
           ).catch((error: unknown) => {
             console.error("[WebSocket] 文字输入初始化失败：", error);
-            connection.active = null;
             connection.sendError(
               "internal_error",
               error instanceof Error ? error.message : String(error),
@@ -651,8 +1015,25 @@ export function registerWebSocket(
       });
 
       socket.on("close", () => {
-        connection.active?.abort(new Error("连接已断开"));
-        runtime.camera.unregister(connection);
+        connection.transcribing?.abort(new Error("连接已断开"));
+        runtime.realtime.unregister(connection);
+        if (runtime.runs.hasActiveClient(connection.id)) {
+          const disconnectedId = connection.id;
+          const cleanup = setTimeout(() => {
+            if (runtime.realtime.current(disconnectedId) === undefined) {
+              runtime.camera.unregister(connection);
+            }
+          }, 30_000);
+          cleanup.unref();
+        } else {
+          runtime.camera.unregister(connection);
+        }
+        if (
+          runtime.realtime.current(connection.id) === undefined ||
+          runtime.realtime.current(connection.id) === connection
+        ) {
+          runtime.runs.markClientDisconnected(connection.id);
+        }
       });
     },
   );

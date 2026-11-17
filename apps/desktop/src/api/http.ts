@@ -1,22 +1,22 @@
 export class HttpError extends Error {
-    status: number;
+  status: number;
 
-    constructor(status: number, detail: string) {
-        super(detail);
-        this.status = status;
-        this.name = "HttpError";
-    }
+  constructor(status: number, detail: string) {
+    super(detail);
+    this.status = status;
+    this.name = "HttpError";
+  }
 }
 
 let baseUrl = "";
 let authToken = "";
 
 export function setBaseUrl(url: string) {
-    baseUrl = url.replace(/\/$/, "");
+  baseUrl = url.replace(/\/$/, "");
 }
 
 export function setAuthToken(token: string | null) {
-    authToken = token?.trim() ?? "";
+  authToken = token?.trim() ?? "";
 }
 
 /**
@@ -28,34 +28,34 @@ export function setAuthToken(token: string | null) {
 const REQUEST_TIMEOUT_MS = 20_000;
 
 function describeNetworkError(err: unknown): string {
-    if (err instanceof DOMException && err.name === "TimeoutError") {
-        return `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒）`;
-    }
-    return err instanceof Error ? err.message : "网络请求失败";
+  if (err instanceof DOMException && err.name === "TimeoutError") {
+    return `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒）`;
+  }
+  return err instanceof Error ? err.message : "网络请求失败";
 }
 
 /** 把 FastAPI 的错误体转成一句人话（detail 可能是字符串，也可能是校验错误数组） */
 export function describeError(status: number, body: unknown): string {
-    const detail = (body as { detail?: unknown } | null)?.detail;
+  const detail = (body as { detail?: unknown } | null)?.detail;
 
-    if (typeof detail === "string") {
-        return detail;
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) =>
+        typeof item === "object" && item !== null && "msg" in item
+          ? String((item as { msg: unknown }).msg)
+          : null,
+      )
+      .filter((msg): msg is string => msg !== null);
+    if (messages.length > 0) {
+      return messages.join("；");
     }
+  }
 
-    if (Array.isArray(detail)) {
-        const messages = detail
-            .map((item) =>
-                typeof item === "object" && item !== null && "msg" in item
-                    ? String((item as { msg: unknown }).msg)
-                    : null,
-            )
-            .filter((msg): msg is string => msg !== null);
-        if (messages.length > 0) {
-            return messages.join("；");
-        }
-    }
-
-    return `HTTP ${status}`;
+  return `HTTP ${status}`;
 }
 
 /**
@@ -65,59 +65,59 @@ export function describeError(status: number, body: unknown): string {
  * 例如设置面板是拿"当前 host:port"现拼地址的。
  */
 export async function fetchJson<T>(url: string, init: RequestInit = {}): Promise<T> {
-    let res: Response;
+  let res: Response;
+  try {
+    const headers = new Headers(init.headers);
+    if (authToken && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${authToken}`);
+    }
+    res = await fetch(url, {
+      ...init,
+      headers,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new HttpError(0, describeNetworkError(err));
+  }
+
+  if (!res.ok) {
+    let body: unknown = null;
     try {
-        const headers = new Headers(init.headers);
-        if (authToken && !headers.has("Authorization")) {
-            headers.set("Authorization", `Bearer ${authToken}`);
-        }
-        res = await fetch(url, {
-            ...init,
-            headers,
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        });
-    } catch (err) {
-        throw new HttpError(0, describeNetworkError(err));
+      body = await res.json();
+    } catch {
+      // 响应不是 JSON，用状态码兜底
     }
+    throw new HttpError(res.status, describeError(res.status, body));
+  }
 
-    if (!res.ok) {
-        let body: unknown = null;
-        try {
-            body = await res.json();
-        } catch {
-            // 响应不是 JSON，用状态码兜底
-        }
-        throw new HttpError(res.status, describeError(res.status, body));
-    }
+  if (res.status === 204) {
+    return undefined as T;
+  }
 
-    if (res.status === 204) {
-        return undefined as T;
-    }
-
-    return (await res.json()) as T;
+  return (await res.json()) as T;
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    if (!baseUrl) {
-        throw new HttpError(0, "后端地址未设置");
-    }
+  if (!baseUrl) {
+    throw new HttpError(0, "后端地址未设置");
+  }
 
-    const init: RequestInit = { method };
-    if (body !== undefined) {
-        init.headers = { "Content-Type": "application/json" };
-        init.body = JSON.stringify(body);
-    }
+  const init: RequestInit = { method };
+  if (body !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
 
-    return fetchJson<T>(`${baseUrl}${path}`, init);
+  return fetchJson<T>(`${baseUrl}${path}`, init);
 }
 
 export const http = {
-    get: <T>(path: string) => request<T>("GET", path),
-    post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
-    patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
-    delete: <T>(path: string) => request<T>("DELETE", path),
+  get: <T>(path: string) => request<T>("GET", path),
+  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
+  patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
+  delete: <T>(path: string) => request<T>("DELETE", path),
 };
 
 export function isApiError(err: unknown): err is HttpError {
-    return err instanceof HttpError;
+  return err instanceof HttpError;
 }

@@ -1,6 +1,12 @@
-import type { BackendSnapshot, PickedTextFile, RestartResult } from "../../electron/types";
+import type {
+  BackendSnapshot,
+  DataBackupResult,
+  DataRestoreResult,
+  PickedTextFile,
+  RestartResult,
+} from "../../electron/types";
 
-export type { BackendSnapshot, PickedTextFile, RestartResult };
+export type { BackendSnapshot, DataBackupResult, DataRestoreResult, PickedTextFile, RestartResult };
 
 /**
  * window.soulMate 的类型声明
@@ -8,15 +14,17 @@ export type { BackendSnapshot, PickedTextFile, RestartResult };
  * 类型源：electron/types.ts
  */
 declare global {
-    interface Window {
-        soulMate: {
-            getBackendStatus: () => Promise<BackendSnapshot>;
-            restartBackend: () => Promise<RestartResult>;
-            onBackendStatus: (callback: (snapshot: BackendSnapshot) => void) => () => void;
+  interface Window {
+    soulMate: {
+      getBackendStatus: () => Promise<BackendSnapshot>;
+      restartBackend: () => Promise<RestartResult>;
+      exportDataBackup: () => Promise<DataBackupResult>;
+      restoreDataBackup: () => Promise<DataRestoreResult>;
+      onBackendStatus: (callback: (snapshot: BackendSnapshot) => void) => () => void;
 
-            openTextFile: () => Promise<PickedTextFile | null>;
-        };
-    }
+      openTextFile: () => Promise<PickedTextFile | null>;
+    };
+  }
 }
 
 export {};

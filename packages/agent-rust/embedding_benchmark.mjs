@@ -12,7 +12,7 @@ const executable =
     : "soul-mate-agent-rust";
 const binary = path.join(
   workspaceDir,
-  ".tmp-cargo-target",
+  ".cargo-target",
   "release",
   executable,
 );

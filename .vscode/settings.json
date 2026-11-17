@@ -4,5 +4,20 @@
     "packages/embedding-core/Cargo.toml",
     "packages/embedding-napi/Cargo.toml",
     "packages/mcp-rust/Cargo.toml"
-  ]
+  ],
+  "cmake.sourceDirectory": "D:/Code/Broadheading/soul-mate-v2/packages/vision-opencv",
+  "cmake.buildDirectory": "D:/Code/Broadheading/soul-mate-v2/.vision-opencv/cmake-build",
+  "cmake.generator": "Visual Studio 17 2022",
+  "cmake.platform": "x64",
+  "cmake.toolset": "host=x64",
+  "cmake.environment": {
+    "TEMP": "D:/Code/Broadheading/soul-mate-v2/.vision-opencv/compiler-temp",
+    "TMP": "D:/Code/Broadheading/soul-mate-v2/.vision-opencv/compiler-temp"
+  },
+  "cmake.configureSettings": {
+    "OpenCV_DIR": "D:/Code/Broadheading/soul-mate-v2/.vision-opencv/opencv-sdk/extracted/opencv/build/x64/vc16/lib"
+  },
+  "cmake.configureOnOpen": true,
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.default.cppStandard": "c++20"
 }

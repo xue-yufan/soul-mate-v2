@@ -151,7 +151,7 @@ fn respond_with_context(
         }
         "tools.list" => json!({ "ok": true, "done": true, "data": { "tools": [] } }),
         "model.stream" => {
-            if let Some(captured) = captured_model_messages.as_deref_mut() {
+            if let Some(captured) = captured_model_messages.as_mut() {
                 captured.push(call["payload"]["messages"].clone());
             }
             for text in model_chunks {

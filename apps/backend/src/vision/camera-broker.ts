@@ -6,6 +6,7 @@ export interface CameraFrame {
 }
 
 interface CameraClient {
+  readonly id: string;
   sendCaptureRequest(event: {
     captureId: string;
     question: string;
@@ -22,17 +23,18 @@ interface PendingCapture {
 }
 
 export class CameraBroker {
-  private readonly clients = new Set<CameraClient>();
+  private readonly clients = new Map<string, CameraClient>();
   private readonly pending = new Map<string, PendingCapture>();
 
   register(client: CameraClient | null): void {
-    if (client) this.clients.add(client);
+    if (client) this.clients.set(client.id, client);
   }
 
   unregister(client: CameraClient): void {
-    this.clients.delete(client);
+    if (this.clients.get(client.id) !== client) return;
+    this.clients.delete(client.id);
     for (const [id, pending] of this.pending) {
-      if (pending.client !== client) continue;
+      if (pending.client.id !== client.id) continue;
       this.pending.delete(id);
       clearTimeout(pending.timer);
       pending.reject(new Error("摄像头连接已断开"));
@@ -54,7 +56,7 @@ export class CameraBroker {
     if (options.signal.aborted) {
       throw new Error("摄像头抓帧已取消");
     }
-    const client = [...this.clients][0];
+    const client = this.clients.values().next().value;
     if (!client) throw new Error("用户尚未开启摄像头，或摄像头窗口未连接");
     const captureId = crypto.randomUUID().replaceAll("-", "");
     const sent = client.sendCaptureRequest({
@@ -103,7 +105,7 @@ export class CameraBroker {
     result: { ok: boolean; image?: Buffer; mimeType?: string; error?: string },
   ): boolean {
     const pending = this.pending.get(captureId);
-    if (!pending || pending.client !== client) return false;
+    if (!pending || pending.client.id !== client.id) return false;
     this.pending.delete(captureId);
     if (!result.ok || !result.image) {
       pending.reject(new Error(result.error || "摄像头没有返回画面"));

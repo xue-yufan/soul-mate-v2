@@ -41,7 +41,7 @@ await kernel.unload();
 npm run build:rust-napi
 ```
 
-构建脚本使用共享目录 `.tmp-cargo-target`，输出：
+构建脚本使用共享目录 `.cargo-target`，输出：
 
 ```text
 packages/embedding-napi/dist/soul-mate-embedding.node

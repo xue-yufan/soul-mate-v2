@@ -189,6 +189,63 @@ async function ttsStatus(settings: Settings): Promise<ModuleStatus> {
     };
   }
 
+  if (tts.provider === "openvino") {
+    const requiredFiles = [
+      "front.onnx",
+      "decoder.onnx",
+      "tokens.txt",
+      "lexicon.txt",
+    ];
+    const missing = requiredFiles.filter(
+      (file) => !fs.existsSync(path.join(tts.model_dir, file)),
+    );
+    if (!tts.python_command.trim()) missing.push("python_command");
+    if (!tts.model_dir.trim()) missing.push("model_dir");
+    if (!tts.base_url.trim()) missing.push("base_url");
+    if (missing.length > 0) {
+      return {
+        id: "tts",
+        label: "语音合成",
+        enabled: true,
+        state: "missing",
+        message: `OpenVINO TTS 配置缺少：${missing.join("、")}`,
+        details: {
+          provider: tts.provider,
+          device: tts.device,
+          missing,
+        },
+      };
+    }
+    if (!fs.existsSync(tts.python_command)) {
+      return {
+        id: "tts",
+        label: "语音合成",
+        enabled: true,
+        state: "missing",
+        message: `OpenVINO Python 不存在：${tts.python_command}`,
+        details: { provider: tts.provider, device: tts.device },
+      };
+    }
+
+    const serviceReady = await probeTts(tts.base_url);
+    return {
+      id: "tts",
+      label: "语音合成",
+      enabled: true,
+      state: serviceReady ? "ready" : "degraded",
+      message: serviceReady
+        ? `OpenVINO 本地 TTS 已连接：${tts.base_url}`
+        : `OpenVINO TTS 配置完整，但尚未探测到服务：${tts.base_url}`,
+      details: {
+        provider: tts.provider,
+        device: tts.device,
+        base_url: tts.base_url,
+        model_dir: tts.model_dir,
+        service_reachable: serviceReady,
+      },
+    };
+  }
+
   if (tts.provider !== "gpt_sovits") {
     return {
       id: "tts",
@@ -302,6 +359,7 @@ export async function inspectRuntimeModules(
   runtime: Runtime,
 ): Promise<ModuleStatus[]> {
   const settings = runtime.settings;
+  const asr = runtime.asr.status();
   const database = runtime.database.health();
   const mcp = runtime.mcp.status();
   const statuses: ModuleStatus[] = [
@@ -372,16 +430,44 @@ export async function inspectRuntimeModules(
     embeddingStatus(runtime),
     await ttsStatus(settings),
     {
+      id: "asr",
+      label: "语音输入",
+      enabled: asr.enabled,
+      state: !asr.enabled
+        ? "disabled"
+        : asr.available
+          ? "ready"
+          : "missing",
+      message: asr.message,
+      details: {
+        engine: asr.engine,
+        provider: asr.provider,
+        command: asr.command,
+        model: asr.model,
+      },
+    },
+    {
       id: "vision",
       label: "视觉",
       enabled: settings.features.vision,
-      state: settings.features.vision ? "ready" : "disabled",
+      state: !settings.features.vision
+        ? "disabled"
+        : settings.vision.opencv.enabled && !runtime.opencv.command()
+          ? "degraded"
+          : "ready",
       message: settings.features.vision
-        ? `视觉配置已加载：${settings.vision.model} @ ${settings.vision.base_url}`
+        ? `视觉配置已加载：${settings.vision.model} @ ${settings.vision.base_url}` +
+          (settings.vision.opencv.enabled
+            ? runtime.opencv.command()
+              ? "；OpenCV 预处理已启用"
+              : "；OpenCV 预处理未找到，自动回退原图"
+            : "")
         : "视觉能力未启用",
       details: {
         model: settings.vision.model,
         base_url: settings.vision.base_url,
+        opencv_enabled: settings.vision.opencv.enabled,
+        opencv_command: runtime.opencv.command(),
       },
     },
     assetHints(),

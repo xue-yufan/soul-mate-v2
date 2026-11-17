@@ -10,7 +10,13 @@ config*.yml
 .env.*
 .DS_Store
 _soul_mate_v2_stage/
-.tmp-build/
-.tmp-cargo-target/
+.cargo-target/
+.vision-opencv/
+.voice-asr/
 packages/embedding-napi/dist/
+packages/vision-opencv/dist/
 target/
+/build/
+*.errors.txt
+__pycache__/
+*.pyc

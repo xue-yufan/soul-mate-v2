@@ -56,6 +56,7 @@ export interface Settings {
     memory: boolean;
     rag: boolean;
     tts: boolean;
+    voice: boolean;
   };
   model: {
     adapter: string;
@@ -122,6 +123,14 @@ export interface Settings {
     num_ctx: number;
     num_predict: number;
     keep_alive: string;
+    opencv: {
+      enabled: boolean;
+      command: string;
+      args: string[];
+      timeout_s: number;
+      max_edge: number;
+      jpeg_quality: number;
+    };
   };
   permission: {
     default: "allow" | "confirm" | "deny";
@@ -155,6 +164,25 @@ export interface Settings {
     top_k: number;
     top_p: number;
     ref_audio_dir: string;
+    python_command: string;
+    model_dir: string;
+    device: string;
+    speaker: string;
+    language: string;
+    instruct: string;
+  };
+  voice: {
+    engine: "auto" | "sherpa" | "whisper";
+    command: string;
+    args: string[];
+    model_dir: string;
+    temp_dir: string;
+    provider: string;
+    provider_config: string;
+    language: string;
+    timeout_s: number;
+    max_audio_seconds: number;
+    threads: number;
   };
 }
 
@@ -327,6 +355,35 @@ export function loadSettings(): Settings {
   if (merged.agent.rust_command) {
     merged.agent.rust_command = resolveBackendPath(merged.agent.rust_command);
   }
+  if (merged.vision.opencv.command) {
+    merged.vision.opencv.command = resolveBackendPath(
+      merged.vision.opencv.command,
+    );
+  }
+  merged.vision.opencv.args = merged.vision.opencv.args.map(String);
+  if (merged.voice.command) {
+    merged.voice.command = resolveBackendPath(merged.voice.command);
+  }
+  if (merged.voice.model_dir) {
+    merged.voice.model_dir = resolveBackendPath(merged.voice.model_dir);
+  }
+  if (merged.voice.temp_dir) {
+    merged.voice.temp_dir = resolveBackendPath(merged.voice.temp_dir);
+  }
+  if (merged.voice.provider_config) {
+    merged.voice.provider_config = resolveBackendPath(
+      merged.voice.provider_config,
+    );
+  }
+  if (merged.tts.python_command) {
+    merged.tts.python_command = resolveBackendPath(
+      merged.tts.python_command,
+    );
+  }
+  if (merged.tts.model_dir) {
+    merged.tts.model_dir = resolveBackendPath(merged.tts.model_dir);
+  }
+  merged.voice.args = merged.voice.args.map(String);
   merged.mcp.servers = normalizeMcpServers(merged.mcp.servers);
 
   if (!Number.isInteger(merged.server.port) || merged.server.port <= 0) {
@@ -337,6 +394,24 @@ export function loadSettings(): Settings {
   }
   if (!["auto", "napi", "sidecar"].includes(merged.embedding.kernel)) {
     throw new Error("embedding.kernel 只能是 auto、napi 或 sidecar");
+  }
+  if (!["auto", "sherpa", "whisper"].includes(merged.voice.engine)) {
+    throw new Error("voice.engine 只能是 auto、sherpa 或 whisper");
+  }
+  if (!["cpu", "openvino"].includes(merged.voice.provider)) {
+    throw new Error("voice.provider 只能是 cpu 或 openvino");
+  }
+  if (merged.voice.timeout_s <= 0) {
+    throw new Error("voice.timeout_s 必须是正数");
+  }
+  if (
+    !Number.isInteger(merged.voice.max_audio_seconds) ||
+    merged.voice.max_audio_seconds < 1
+  ) {
+    throw new Error("voice.max_audio_seconds 必须是正整数");
+  }
+  if (!Number.isInteger(merged.voice.threads) || merged.voice.threads < 1) {
+    throw new Error("voice.threads 必须是正整数");
   }
   if (merged.memory.candidate_limit < 1) {
     throw new Error("memory.candidate_limit 必须是正整数");

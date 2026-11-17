@@ -15,7 +15,7 @@ import { McpManager } from "./manager.js";
 
 const gateway = path.resolve(
   backendRoot(),
-  "../../.tmp-cargo-target/release",
+  "../../.cargo-target/release",
   process.platform === "win32"
     ? "soul-mate-mcp-rust.exe"
     : "soul-mate-mcp-rust",

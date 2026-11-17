@@ -18,7 +18,7 @@ const fixture = path.join(
 const kernels: RustSidecarKernel[] = [];
 const nativeExecutable = path.resolve(
   backendRoot(),
-  "../../.tmp-cargo-target/release",
+  "../../.cargo-target/release",
   process.platform === "win32"
     ? "soul-mate-agent-rust.exe"
     : "soul-mate-agent-rust",

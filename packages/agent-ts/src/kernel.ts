@@ -262,6 +262,7 @@ export class TypeScriptAgentKernel implements AgentKernel {
             if (emotionResolved) {
               responseText += chunk.delta;
               text += chunk.delta;
+              yield { type: "text_delta", data: { text: chunk.delta } };
             } else {
               emotionBuffer += chunk.delta;
               const parsed = parseEmotionTag(emotionBuffer);
@@ -280,14 +281,13 @@ export class TypeScriptAgentKernel implements AgentKernel {
                 emotionBuffer.length > 100 ||
                 !isEmotionPrefix(emotionBuffer)
               ) {
+                const before = responseText.length;
                 flushAsText(emotionBuffer);
                 const visible = responseText.replace(
                   /^__EMOTION__([a-z]+)__/,
                   "",
                 );
-                const emitted = visible.slice(
-                  Math.max(0, visible.length - emotionBuffer.length),
-                );
+                const emitted = visible.slice(before);
                 if (emitted) {
                   yield { type: "text_delta", data: { text: emitted } };
                 }
@@ -297,14 +297,13 @@ export class TypeScriptAgentKernel implements AgentKernel {
 
           if (chunk.toolCalls) {
             if (!emotionResolved && emotionBuffer) {
+              const before = responseText.length;
               flushAsText(emotionBuffer);
               const visible = responseText.replace(
                 /^__EMOTION__([a-z]+)__/,
                 "",
               );
-              const emitted = visible.slice(
-                Math.max(0, visible.length - emotionBuffer.length),
-              );
+              const emitted = visible.slice(before);
               if (emitted) {
                 yield { type: "text_delta", data: { text: emitted } };
               }

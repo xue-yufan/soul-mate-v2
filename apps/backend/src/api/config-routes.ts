@@ -40,10 +40,15 @@ function snapshot(runtime: Runtime) {
       voice: settings.tts.voice,
       rate: settings.tts.rate,
     },
+    voice: {
+      ...runtime.asr.status(),
+    },
     agent: {
       default_session_id: settings.agent.default_session_id,
       history_turns: settings.agent.history_turns,
       max_tool_steps: settings.agent.max_tool_steps,
+      summary_trigger_tokens: settings.agent.summary_trigger_tokens,
+      summary_keep_recent_turns: settings.agent.summary_keep_recent_turns,
     },
     settings: buildSettingsPayload(settings),
   };

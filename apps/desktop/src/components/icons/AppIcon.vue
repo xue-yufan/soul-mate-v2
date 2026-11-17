@@ -54,6 +54,14 @@
             <circle cx="9.5" cy="12.5" r="2.5" />
             <circle cx="5.5" cy="9.5" r="0.7" fill="currentColor" stroke="none" />
         </template>
+
+        <!-- 麦克风：本地语音输入 -->
+        <template v-else-if="name === 'microphone'">
+            <rect x="8.4" y="3.5" width="7.2" height="11" rx="3.6" />
+            <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" />
+            <path d="M12 18v2.5" />
+            <path d="M8.5 20.5h7" />
+        </template>
     </svg>
 </template>
 
@@ -67,7 +75,7 @@
  * 悬停/激活变色的时候图标跟着变（emoji 变不了）。
  */
 defineProps<{
-    name: "sound" | "mute" | "book" | "gear" | "camera";
+    name: "sound" | "mute" | "book" | "gear" | "camera" | "microphone";
 }>();
 </script>
 

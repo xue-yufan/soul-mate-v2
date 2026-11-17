@@ -6,100 +6,110 @@ import ChatPanel from "@/components/ChatPanel.vue";
 import { createMockChat } from "@/test/helpers";
 
 function mountPanel(chat = createMockChat()) {
-    return mount(ChatPanel, {
-        props: {
-            chat,
-            connectionStatus: "connected",
-        },
-        global: {
-            stubs: {
-                MessageBubble: true,
-                ToolCallCard: true,
-            },
-        },
-    });
+  return mount(ChatPanel, {
+    props: {
+      chat,
+      connectionStatus: "connected",
+    },
+    global: {
+      stubs: {
+        MessageBubble: true,
+        ToolCallCard: true,
+      },
+    },
+  });
 }
 
 describe("ChatPanel", () => {
-    it("按 Enter 发送消息并清空输入框", async () => {
-        const chat = createMockChat();
-        const wrapper = mountPanel(chat);
-        const input = wrapper.get("textarea");
+  it("按 Enter 发送消息并清空输入框", async () => {
+    const chat = createMockChat();
+    const wrapper = mountPanel(chat);
+    const input = wrapper.get("textarea");
 
-        await input.setValue("测试消息");
-        await input.trigger("keydown", {
-            key: "Enter",
-            shiftKey: false,
-            isComposing: false,
-        });
-
-        expect(chat.sendText).toHaveBeenCalledWith("测试消息");
-        expect((input.element as HTMLTextAreaElement).value).toBe("");
+    await input.setValue("测试消息");
+    await input.trigger("keydown", {
+      key: "Enter",
+      shiftKey: false,
+      isComposing: false,
     });
 
-    it("Shift+Enter 保留换行，不发送消息", async () => {
-        const chat = createMockChat();
-        const wrapper = mountPanel(chat);
-        const input = wrapper.get("textarea");
+    expect(chat.sendText).toHaveBeenCalledWith("测试消息");
+    expect((input.element as HTMLTextAreaElement).value).toBe("");
+  });
 
-        await input.setValue("第一行");
-        await input.trigger("keydown", {
-            key: "Enter",
-            shiftKey: true,
-            isComposing: false,
-        });
+  it("Shift+Enter 保留换行，不发送消息", async () => {
+    const chat = createMockChat();
+    const wrapper = mountPanel(chat);
+    const input = wrapper.get("textarea");
 
-        expect(chat.sendText).not.toHaveBeenCalled();
-        expect((input.element as HTMLTextAreaElement).value).toBe("第一行");
+    await input.setValue("第一行");
+    await input.trigger("keydown", {
+      key: "Enter",
+      shiftKey: true,
+      isComposing: false,
     });
 
-    it("生成过程中显示当前专家的等待提示", async () => {
-        const chat = createMockChat();
-        chat.isGenerating.value = true;
-        chat.currentExpert.value = "info";
+    expect(chat.sendText).not.toHaveBeenCalled();
+    expect((input.element as HTMLTextAreaElement).value).toBe("第一行");
+  });
 
-        const wrapper = mountPanel(chat);
-        await nextTick();
+  it("生成过程中显示当前专家的等待提示", async () => {
+    const chat = createMockChat();
+    chat.isGenerating.value = true;
+    chat.currentExpert.value = "info";
 
-        expect(wrapper.text()).toContain("正在查询信息");
-        wrapper.unmount();
+    const wrapper = mountPanel(chat);
+    await nextTick();
+
+    expect(wrapper.text()).toContain("正在查询信息");
+    wrapper.unmount();
+  });
+
+  it("等待权限回复时同时支持按钮和自然语言输入", async () => {
+    const chat = createMockChat();
+    chat.isGenerating.value = true;
+    chat.pendingConfirm.value = {
+      confirmId: "confirm-1",
+      toolCallId: "call-1",
+      tool: "read_file",
+      args: { path: "notes.txt" },
+      timeoutS: 30,
+      prompt: "可以读吗？",
+    };
+
+    const wrapper = mountPanel(chat);
+    const input = wrapper.get("textarea");
+    expect(input.attributes("disabled")).toBeUndefined();
+    expect(input.attributes("placeholder")).toContain("可以");
+
+    await input.setValue("可以");
+    await input.trigger("keydown", {
+      key: "Enter",
+      shiftKey: false,
+      isComposing: false,
+    });
+    expect(chat.sendText).toHaveBeenCalledWith("可以");
+
+    await wrapper.get(".confirm-btn.allow").trigger("click");
+    expect(chat.confirmTool).toHaveBeenCalledWith(true);
+  });
+
+  it("后端未连接时禁用输入框", () => {
+    const chat = createMockChat();
+    const wrapper = mount(ChatPanel, {
+      props: {
+        chat,
+        connectionStatus: "disconnected",
+      },
+      global: {
+        stubs: {
+          MessageBubble: true,
+          ToolCallCard: true,
+        },
+      },
     });
 
-    it("等待权限回复时显示明确按钮并暂停普通输入", async () => {
-        const chat = createMockChat();
-        chat.isGenerating.value = true;
-        chat.pendingConfirm.value = {
-            confirmId: "confirm-1",
-            toolCallId: "call-1",
-            tool: "read_file",
-            args: { path: "notes.txt" },
-            timeoutS: 30,
-            prompt: "可以读吗？",
-        };
-
-        const wrapper = mountPanel(chat);
-        const input = wrapper.get("textarea");
-        expect(input.attributes("disabled")).toBeDefined();
-        await wrapper.get(".confirm-btn.allow").trigger("click");
-        expect(chat.confirmTool).toHaveBeenCalledWith(true);
-    });
-
-    it("后端未连接时禁用输入框", () => {
-        const chat = createMockChat();
-        const wrapper = mount(ChatPanel, {
-            props: {
-                chat,
-                connectionStatus: "disconnected",
-            },
-            global: {
-                stubs: {
-                    MessageBubble: true,
-                    ToolCallCard: true,
-                },
-            },
-        });
-
-        expect(wrapper.get("textarea").attributes("disabled")).toBeDefined();
-        expect(wrapper.get(".send-btn").attributes("disabled")).toBeDefined();
-    });
+    expect(wrapper.get("textarea").attributes("disabled")).toBeDefined();
+    expect(wrapper.get(".send-btn").attributes("disabled")).toBeDefined();
+  });
 });

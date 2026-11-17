@@ -20,9 +20,9 @@
         />
 
         <div
+            :id="`settings-panel-${activeTab}`"
             class="modal-body"
             role="tabpanel"
-            :id="`settings-panel-${activeTab}`"
             :aria-labelledby="`settings-tab-${activeTab}`"
         >
             <p v-if="activeTabMeta" class="group-desc">
@@ -70,6 +70,41 @@
                         恢复本机默认
                     </BaseButton>
                 </div>
+            </template>
+
+            <!-- ---------------- 数据备份与恢复 ---------------- -->
+            <template v-else-if="activeTab === 'data'">
+                <BaseField
+                    label="立即备份"
+                    help="导出一个完整的 SQLite 数据文件，包含聊天、记忆、知识库和审计数据。"
+                >
+                    <BaseButton
+                        variant="primary"
+                        :disabled="backend.status !== 'ready' || dataBusy"
+                        :loading="dataBusy"
+                        @click="onExportBackup"
+                    >
+                        {{ dataBusy ? "处理中..." : "导出备份" }}
+                    </BaseButton>
+                </BaseField>
+
+                <BaseField
+                    label="从备份恢复"
+                    help="恢复前会停止后端并保留当前数据库副本；校验或启动失败时会尝试自动回滚。"
+                >
+                    <BaseButton
+                        variant="danger"
+                        :disabled="backend.status !== 'ready' || dataBusy"
+                        @click="onRestoreBackup"
+                    >
+                        选择备份并恢复
+                    </BaseButton>
+                </BaseField>
+
+                <p class="data-note">
+                    应用每天启动时会自动保留一份本地快照，数据库升级前也会额外备份。
+                    自动备份保存在数据目录的 backups 子目录中，最多保留最近 10 份。
+                </p>
             </template>
 
             <!-- ---------------- 关于（只读） ---------------- -->
@@ -313,6 +348,12 @@ const LOCAL_TAB: Tab = {
     description: "只存在这台机器上，不影响后端，也不用重启。",
 };
 
+const DATA_TAB: Tab = {
+    id: "data",
+    title: "数据",
+    description: "备份、恢复和数据库升级保护。",
+};
+
 const ABOUT_TAB: Tab = {
     id: "about",
     title: "关于",
@@ -321,6 +362,7 @@ const ABOUT_TAB: Tab = {
 
 const tabs = computed<Tab[]>(() => [
     LOCAL_TAB,
+    DATA_TAB,
     ...(props.config.config.value?.settings.groups ?? []),
     ABOUT_TAB,
 ]);
@@ -491,9 +533,10 @@ watch(
 
 const saving = ref(false);
 const restarting = ref(false);
+const dataBusy = ref(false);
 const message = ref<{ kind: "ok" | "error"; text: string } | null>(null);
 
-const busy = computed(() => saving.value || restarting.value);
+const busy = computed(() => saving.value || restarting.value || dataBusy.value);
 
 const saveLabel = computed(() => {
     if (saving.value) {
@@ -586,6 +629,65 @@ async function onRestartOnly() {
         return;
     }
     await doRestart("正在重启后端…");
+}
+
+async function onExportBackup() {
+    dataBusy.value = true;
+    message.value = { kind: "ok", text: "正在生成数据备份…" };
+    try {
+        const result = await window.soulMate.exportDataBackup();
+        if (result.canceled) {
+            message.value = null;
+            return;
+        }
+        message.value = result.ok
+            ? {
+                  kind: "ok",
+                  text: result.path ? `备份已保存：${result.path}` : "备份已保存",
+              }
+            : { kind: "error", text: `备份失败：${result.error ?? "未知错误"}` };
+    } catch (err) {
+        message.value = {
+            kind: "error",
+            text: `备份失败：${err instanceof Error ? err.message : String(err)}`,
+        };
+    } finally {
+        dataBusy.value = false;
+    }
+}
+
+async function onRestoreBackup() {
+    dataBusy.value = true;
+    message.value = { kind: "ok", text: "正在校验备份并恢复数据…" };
+    try {
+        const result = await window.soulMate.restoreDataBackup();
+        if (result.canceled) {
+            message.value = null;
+            return;
+        }
+        if (!result.ok) {
+            message.value = {
+                kind: "error",
+                text: `恢复失败：${result.error ?? "未知错误"}`,
+            };
+            return;
+        }
+        try {
+            await props.config.refresh(apiBase.value);
+            seedDraft();
+            seededSignature.value = configSignature.value;
+        } catch {
+            // 后端恢复成功后，应用层仍会通过状态事件重新连接。
+        }
+        message.value = { kind: "ok", text: "数据已恢复，聊天连接正在重新载入。" };
+    } catch (err) {
+        message.value = {
+            kind: "error",
+            text: `恢复失败：${err instanceof Error ? err.message : String(err)}`,
+        };
+    } finally {
+        dataBusy.value = false;
+    }
 }
 
 // ---------- 关于页里的 API 密钥 ----------
@@ -706,6 +808,17 @@ function close() {
 
 .hint.error {
     color: #e08080;
+}
+
+.data-note {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+    background: var(--surface-sunken);
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    line-height: 1.7;
 }
 
 .lock {

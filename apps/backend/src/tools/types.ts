@@ -10,6 +10,7 @@ export interface ToolExecutionContext {
   requestId: string;
   signal: AbortSignal;
   cameraBroker: import("../vision/camera-broker.js").CameraBroker;
+  visionPreprocessor?: import("../vision/opencv.js").OpenCvPreprocessor;
 }
 
 export interface ToolResult {

@@ -93,4 +93,15 @@ export class Persona {
       .replaceAll("{tool}", toolName)
       .replaceAll("{detail}", detail);
   }
+
+  confirmClarification(): string {
+    const candidates = this.document.tool_confirm?.clarify ?? [];
+    if (candidates.length === 0) {
+      return "阁下只需答复“可以”或“不必了”。";
+    }
+    return (
+      candidates[Math.floor(Math.random() * candidates.length)] ??
+      "阁下只需答复“可以”或“不必了”。"
+    );
+  }
 }

@@ -18,9 +18,9 @@
         </template>
 
         <div
+            :id="`knowledge-panel-${activeTab}`"
             class="modal-body"
             role="tabpanel"
-            :id="`knowledge-panel-${activeTab}`"
             :aria-labelledby="`knowledge-tab-${activeTab}`"
         >
             <MemoryTab v-if="activeTab === 'memory'" :enabled="features.memory" />

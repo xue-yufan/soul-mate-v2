@@ -7,7 +7,7 @@ import { RustEmbeddingClient } from "./embedding-client.js";
 const executable = [
   path.resolve(
     backendRoot(),
-    "../../.tmp-cargo-target/release",
+    "../../.cargo-target/release",
     process.platform === "win32"
       ? "soul-mate-agent-rust.exe"
       : "soul-mate-agent-rust",

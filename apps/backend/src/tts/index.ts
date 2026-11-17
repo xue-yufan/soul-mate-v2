@@ -22,7 +22,7 @@ export interface TtsLaunch {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
-  mode: "venv" | "uv";
+  mode: "venv" | "uv" | "openvino";
 }
 
 const TTS_READY_TIMEOUT_MS = 90_000;
@@ -39,6 +39,41 @@ export function resolveTtsLaunch(
 ): TtsLaunch {
   const platform = options.platform ?? process.platform;
   const baseEnv = { ...(options.baseEnv ?? process.env) };
+  if (settings.tts.provider === "openvino") {
+    const backendDir = options.backendRootDir ?? backendRoot();
+    const script = path.join(
+      backendDir,
+      "src",
+      "tts",
+      "openvino_tts_server.py",
+    );
+    const parsed = new URL(settings.tts.base_url);
+    return {
+      command: settings.tts.python_command,
+      args: [
+        script,
+        "--model-dir",
+        settings.tts.model_dir,
+        "--host",
+        parsed.hostname,
+        "--port",
+        parsed.port || "9880",
+        "--device",
+        settings.tts.device,
+        "--speaker",
+        settings.tts.speaker,
+        "--language",
+        settings.tts.language,
+        "--instruct",
+        settings.tts.instruct,
+        "--cache-dir",
+        path.join(path.dirname(settings.tts.model_dir), "tts-cache"),
+      ],
+      cwd: backendDir,
+      env: baseEnv,
+      mode: "openvino",
+    };
+  }
   const engineDir = path.resolve(settings.tts.engine_dir.trim());
   const venvDir = path.join(engineDir, ".venv");
   const scriptsDir = path.join(
@@ -136,11 +171,18 @@ class TtsEngineManager {
   constructor(private readonly settings: Settings) {}
 
   get enabled(): boolean {
-    return (
-      this.settings.features.tts &&
-      this.settings.tts.provider === "gpt_sovits" &&
-      Boolean(this.settings.tts.engine_dir.trim())
-    );
+    if (!this.settings.features.tts) return false;
+    if (this.settings.tts.provider === "gpt_sovits") {
+      return Boolean(this.settings.tts.engine_dir.trim());
+    }
+    if (this.settings.tts.provider === "openvino") {
+      return Boolean(
+        this.settings.tts.python_command &&
+          this.settings.tts.model_dir &&
+          this.settings.tts.base_url,
+      );
+    }
+    return false;
   }
 
   async start(): Promise<void> {
@@ -155,17 +197,30 @@ class TtsEngineManager {
 
   private async startInternal(): Promise<void> {
     const baseUrl = this.settings.tts.base_url.trim();
-    const engineDir = path.resolve(this.settings.tts.engine_dir.trim());
     if (!baseUrl) {
-      console.warn("[语音] 已启用 GPT-SoVITS，但未配置 base_url");
+      console.warn(`[语音] 已启用 ${this.settings.tts.provider}，但未配置 base_url`);
       return;
     }
-    if (!fs.existsSync(engineDir)) {
-      console.warn(`[语音] TTS 引擎目录不存在：${engineDir}`);
-      return;
+    if (this.settings.tts.provider === "gpt_sovits") {
+      const engineDir = path.resolve(this.settings.tts.engine_dir.trim());
+      if (!fs.existsSync(engineDir)) {
+        console.warn(`[语音] TTS 引擎目录不存在：${engineDir}`);
+        return;
+      }
+    } else {
+      if (!fs.existsSync(this.settings.tts.python_command)) {
+        console.warn(
+          `[语音] OpenVINO Python 不存在：${this.settings.tts.python_command}`,
+        );
+        return;
+      }
+      if (!fs.existsSync(this.settings.tts.model_dir)) {
+        console.warn(`[语音] OpenVINO TTS 模型目录不存在：${this.settings.tts.model_dir}`);
+        return;
+      }
     }
     if (await probeTtsService(baseUrl)) {
-      console.info(`[语音] 检测到 GPT-SoVITS 服务已运行：${baseUrl}`);
+      console.info(`[语音] 检测到 TTS 服务已运行：${baseUrl}`);
       return;
     }
 
@@ -178,11 +233,15 @@ class TtsEngineManager {
     );
     if (launch.mode === "venv") {
       console.info(`[语音] 正在启动 GPT-SoVITS（虚拟环境）：${launch.command}`);
-    } else {
+    } else if (launch.mode === "uv") {
       console.info(
         `[语音] 正在启动 GPT-SoVITS（uv）：${launch.command} ${launch.args.join(" ")}`,
       );
       console.info(`[语音] UV 缓存目录：${launch.env.UV_CACHE_DIR}`);
+    } else {
+      console.info(
+        `[语音] 正在启动 OpenVINO TTS：${launch.command} ${launch.args.join(" ")}`,
+      );
     }
     try {
       this.child = spawn(launch.command, launch.args, {
@@ -192,7 +251,7 @@ class TtsEngineManager {
         stdio: ["ignore", "ignore", "pipe"],
       });
     } catch (error) {
-      console.warn("[语音] 启动 GPT-SoVITS 失败：", error);
+      console.warn("[语音] 启动 TTS 引擎失败：", error);
       return;
     }
 
@@ -204,7 +263,7 @@ class TtsEngineManager {
         if (!line.trim()) continue;
         if (loggedStderrLines < 20) {
           loggedStderrLines += 1;
-          console.warn(`[语音/GPT-SoVITS] ${line.trim()}`);
+          console.warn(`[语音/TTS] ${line.trim()}`);
         } else {
           stderrTail.push(line.trim());
           if (stderrTail.length > 20) stderrTail.shift();
@@ -213,16 +272,16 @@ class TtsEngineManager {
     });
     this.child.on("exit", (code, signal) => {
       if (stderrTail.length > 0) {
-        console.warn("[语音/GPT-SoVITS] 退出前的尾部日志：");
+        console.warn("[语音/TTS] 退出前的尾部日志：");
         for (const line of stderrTail) {
-          console.warn(`[语音/GPT-SoVITS] ${line}`);
+          console.warn(`[语音/TTS] ${line}`);
         }
       }
-      console.warn(`[语音] GPT-SoVITS 已退出：code=${code}, signal=${signal}`);
+      console.warn(`[语音] TTS 引擎已退出：code=${code}, signal=${signal}`);
       this.child = null;
     });
     this.child.on("error", (error) => {
-      console.warn("[语音] GPT-SoVITS 启动器出错：", error);
+      console.warn("[语音] TTS 启动器出错：", error);
       this.child = null;
     });
 
@@ -230,19 +289,19 @@ class TtsEngineManager {
     while (Date.now() < deadline) {
       if (!this.child) return;
       if (await probeTtsService(baseUrl)) {
-        console.info(`[语音] GPT-SoVITS 服务已就绪：${baseUrl}`);
+        console.info(`[语音] TTS 服务已就绪：${baseUrl}`);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
-    console.warn("[语音] 等待 GPT-SoVITS 服务就绪超时，本轮继续以静音模式运行");
+    console.warn("[语音] 等待 TTS 服务就绪超时，本轮继续以静音模式运行");
   }
 
   async close(): Promise<void> {
     const child = this.child;
     this.child = null;
     if (!child || child.killed) return;
-    console.info("[语音] 正在关闭由应用启动的 GPT-SoVITS 服务");
+    console.info("[语音] 正在关闭由应用启动的 TTS 服务");
     if (process.platform === "win32" && child.pid) {
       await new Promise<void>((resolve) => {
         const killer = spawn(
@@ -284,15 +343,22 @@ export class TtsAdapter {
   }
 
   get available(): boolean {
-    return (
-      this.settings.features.tts &&
-      this.settings.tts.provider === "gpt_sovits" &&
-      Boolean(
+    if (!this.settings.features.tts) return false;
+    if (this.settings.tts.provider === "gpt_sovits") {
+      return Boolean(
         this.settings.tts.base_url &&
-        this.settings.tts.ref_audio &&
-        this.settings.tts.prompt_text,
-      )
-    );
+          this.settings.tts.ref_audio &&
+          this.settings.tts.prompt_text,
+      );
+    }
+    if (this.settings.tts.provider === "openvino") {
+      return Boolean(
+        this.settings.tts.base_url &&
+          this.settings.tts.model_dir &&
+          this.settings.tts.python_command,
+      );
+    }
+    return false;
   }
 
   async synthesize(
@@ -301,6 +367,33 @@ export class TtsAdapter {
     signal: AbortSignal,
   ): Promise<AudioChunk | null> {
     if (!this.available) return null;
+    if (this.settings.tts.provider === "openvino") {
+      const response = await fetch(
+        `${this.settings.tts.base_url.replace(/\/$/, "")}/tts`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            speaker: this.settings.tts.speaker,
+            language: this.settings.tts.language,
+            instruct: this.settings.tts.instruct,
+            emotion,
+          }),
+          signal: AbortSignal.any([
+            signal,
+            AbortSignal.timeout(this.settings.tts.timeout_s * 1000),
+          ]),
+        },
+      );
+      if (!response.ok) {
+        console.warn(`[语音] OpenVINO TTS 返回状态码 ${response.status}`);
+        return null;
+      }
+      const audio = Buffer.from(await response.arrayBuffer());
+      if (audio.length === 0) return null;
+      return { audio, format: "wav", text, chars: text.length };
+    }
     const reference = referenceFor(this.settings, emotion);
     const response = await fetch(
       `${this.settings.tts.base_url.replace(/\/$/, "")}/tts`,

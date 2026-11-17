@@ -40,7 +40,7 @@ function defaultGatewayCommand(): string | null {
     .resourcesPath;
   const candidates = [
     process.env.SOUL_MATE_MCP_RUST_BIN?.trim() || null,
-    path.resolve(backendRoot(), "../../.tmp-cargo-target/release", executable),
+    path.resolve(backendRoot(), "../../.cargo-target/release", executable),
     resourcesPath ? path.resolve(resourcesPath, "mcp-rust", executable) : null,
   ].filter((item): item is string => Boolean(item));
   return candidates.find((item) => fs.existsSync(item)) ?? null;

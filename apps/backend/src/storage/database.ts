@@ -4,8 +4,14 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ChatMessage, PersistedAgentMessage } from "@soul-mate/agent-contracts";
 import type { Settings } from "../config/settings.js";
-import { backendRoot } from "../config/settings.js";
 import { stripEmotionPrefix } from "@soul-mate/agent-ts";
+import {
+  createDatabaseBackup,
+  initializeStorage,
+  latestDatabaseBackup,
+  type BackupInfo,
+  type StorageStatus,
+} from "./migrations.js";
 
 export const nowIso = (): string => new Date().toISOString();
 export const newId = (): string => crypto.randomUUID().replaceAll("-", "");
@@ -13,31 +19,44 @@ export const newId = (): string => crypto.randomUUID().replaceAll("-", "");
 type SqlValue = string | number | bigint | null | Uint8Array;
 type Row = Record<string, unknown>;
 
+export interface SummaryState {
+  summary: string | null;
+  summarizedThroughRowId: number;
+  updatedAt: string | null;
+}
+
+export interface SummaryMessage {
+  rowId: number;
+  role: "user" | "assistant";
+  content: string;
+}
+
 export class Database {
   private readonly db: DatabaseSync;
+  private storage: StorageStatus;
 
   constructor(private readonly settings: Settings) {
     fs.mkdirSync(path.dirname(settings.paths.sqlite_path), { recursive: true });
+    const existedBeforeOpen =
+      fs.existsSync(settings.paths.sqlite_path) &&
+      fs.statSync(settings.paths.sqlite_path).size > 0;
     this.db = new DatabaseSync(settings.paths.sqlite_path, {
       timeout: Math.round(settings.database.timeout_s * 1000),
     });
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = NORMAL;");
-    this.db.exec("PRAGMA foreign_keys = ON;");
-
-    const schemaCandidates = [
-      path.resolve(import.meta.dirname, "schema.sql"),
-      path.resolve(backendRoot(), "src", "storage", "schema.sql"),
-    ];
-    const schemaFile = schemaCandidates.find((candidate) =>
-      fs.existsSync(candidate),
-    );
-    if (!schemaFile) {
-      throw new Error("找不到数据库 schema.sql");
+    try {
+      this.db.exec("PRAGMA journal_mode = WAL;");
+      this.db.exec("PRAGMA synchronous = NORMAL;");
+      this.db.exec("PRAGMA foreign_keys = ON;");
+      this.storage = initializeStorage(
+        this.db,
+        settings.paths.sqlite_path,
+        existedBeforeOpen,
+      );
+      this.ensureSession(settings.agent.default_session_id);
+    } catch (error) {
+      this.db.close();
+      throw error;
     }
-    const schema = fs.readFileSync(schemaFile, "utf-8");
-    this.db.exec(schema);
-    this.ensureSession(settings.agent.default_session_id);
   }
 
   close(): void {
@@ -192,21 +211,98 @@ export class Database {
   }
 
   loadSummary(sessionId: string): string | null {
-    const row = this.get<{ summary: string }>(
-      "SELECT summary FROM session_summaries WHERE session_id = ?",
-      sessionId,
-    );
-    return row?.summary ?? null;
+    return this.loadSummaryState(sessionId).summary;
   }
 
-  saveSummary(sessionId: string, summary: string): void {
+  loadSummaryState(sessionId: string): SummaryState {
+    const row = this.get<{
+      summary: string;
+      summarized_through_rowid: number;
+      updated_at: string;
+    }>(
+      "SELECT summary, summarized_through_rowid, updated_at " +
+        "FROM session_summaries WHERE session_id = ?",
+      sessionId,
+    );
+    return {
+      summary: row?.summary ?? null,
+      summarizedThroughRowId: Number(row?.summarized_through_rowid ?? 0),
+      updatedAt: row?.updated_at ?? null,
+    };
+  }
+
+  saveSummary(
+    sessionId: string,
+    summary: string,
+    summarizedThroughRowId = 0,
+  ): void {
     this.run(
-      "INSERT INTO session_summaries(session_id, summary, updated_at) VALUES (?, ?, ?) " +
-        "ON CONFLICT(session_id) DO UPDATE SET summary=excluded.summary, updated_at=excluded.updated_at",
+      "INSERT INTO session_summaries(" +
+        "session_id, summary, summarized_through_rowid, updated_at" +
+        ") VALUES (?, ?, ?, ?) " +
+        "ON CONFLICT(session_id) DO UPDATE SET " +
+        "summary=excluded.summary, " +
+        "summarized_through_rowid=excluded.summarized_through_rowid, " +
+        "updated_at=excluded.updated_at",
       sessionId,
       summary,
+      summarizedThroughRowId,
       nowIso(),
     );
+  }
+
+  loadRecentSummaryMessages(
+    sessionId: string,
+    maxTurns: number,
+  ): SummaryMessage[] {
+    if (maxTurns <= 0) return [];
+    const rows = this.all(
+      "WITH recent_users AS (" +
+        "SELECT rowid AS turn_rowid FROM messages " +
+        "WHERE session_id = ? AND role = 'user' " +
+        "ORDER BY rowid DESC LIMIT ?" +
+        ") SELECT rowid AS row_id, role, content FROM messages " +
+        "WHERE session_id = ? AND role IN ('user', 'assistant') " +
+        "AND rowid >= (SELECT MIN(turn_rowid) FROM recent_users) " +
+        "ORDER BY rowid ASC",
+      sessionId,
+      maxTurns,
+      sessionId,
+    );
+    return rows.map(summaryMessageFromRow);
+  }
+
+  summaryKeepBoundary(sessionId: string, keepTurns: number): number | null {
+    if (keepTurns <= 0) return null;
+    const rows = this.all<{ row_id: number }>(
+      "SELECT rowid AS row_id FROM messages " +
+        "WHERE session_id = ? AND role = 'user' " +
+        "ORDER BY rowid DESC LIMIT ?",
+      sessionId,
+      keepTurns,
+    );
+    if (rows.length === 0) return 0;
+    return Number(rows.at(-1)?.row_id ?? 0);
+  }
+
+  loadPendingSummaryMessages(
+    sessionId: string,
+    afterRowId: number,
+    beforeRowId: number | null,
+    limit = 200,
+  ): SummaryMessage[] {
+    const params: SqlValue[] = [sessionId, afterRowId];
+    let sql =
+      "SELECT rowid AS row_id, role, content FROM messages " +
+      "WHERE session_id = ? AND role IN ('user', 'assistant') " +
+      "AND rowid > ?";
+    if (beforeRowId !== null) {
+      sql += " AND rowid < ?";
+      params.push(beforeRowId);
+    }
+    sql += " ORDER BY rowid ASC LIMIT ?";
+    params.push(limit);
+    return this.all(sql, ...params).map(summaryMessageFromRow);
   }
 
   insertUserMessage(sessionId: string, content: string): string {
@@ -214,6 +310,20 @@ export class Database {
     const id = newId();
     this.run(
       "INSERT INTO messages(id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
+      id,
+      sessionId,
+      content,
+      nowIso(),
+    );
+    return id;
+  }
+
+  insertAssistantMessage(sessionId: string, content: string): string {
+    this.ensureSession(sessionId);
+    const id = newId();
+    this.run(
+      "INSERT INTO messages(id, session_id, role, content, created_at) " +
+        "VALUES (?, ?, 'assistant', ?, ?)",
       id,
       sessionId,
       content,
@@ -301,17 +411,31 @@ export class Database {
     this.run("UPDATE cost_log SET tts_chars = ? WHERE message_id = ?", chars, messageId);
   }
 
+  backup(reason = "manual"): BackupInfo | null {
+    const info = createDatabaseBackup(
+      this.db,
+      this.settings.paths.sqlite_path,
+      reason,
+    );
+    this.storage = {
+      ...this.storage,
+      latestBackup: latestDatabaseBackup(this.settings.paths.sqlite_path),
+    };
+    return info;
+  }
+
   health(): Record<string, unknown> {
     try {
-      const version = this.get<{ value: string }>(
-        "SELECT value FROM meta WHERE key = 'schema_version'",
-      );
       const journal = this.get<{ journal_mode: string }>("PRAGMA journal_mode");
       return {
         status: "ok",
         path: this.settings.paths.sqlite_path,
-        schema_version: version?.value ?? "unknown",
+        schema_version: String(this.storage.schemaVersion),
         journal_mode: journal?.journal_mode ?? "unknown",
+        integrity: this.storage.integrity,
+        backup_dir: this.storage.backupDir,
+        latest_backup: this.storage.latestBackup,
+        migration: this.storage.migration,
       };
     } catch (error) {
       return {
@@ -329,4 +453,12 @@ function safeJson(text: string): unknown {
   } catch {
     return {};
   }
+}
+
+function summaryMessageFromRow(row: Row): SummaryMessage {
+  return {
+    rowId: Number(row.row_id),
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: String(row.content ?? ""),
+  };
 }
